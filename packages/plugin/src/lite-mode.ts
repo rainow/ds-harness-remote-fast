@@ -28,6 +28,12 @@ export const LITE_PROJECTION_KEEP_KEYS: ReadonlySet<string> = new Set([
 /** Projections larger than this many bytes are dropped in lite mode. */
 export const LITE_PROJECTION_MAX_BYTES = 16 * 1024
 
+/**
+ * Total budget for one frame's projections. Individual entries can be small and
+ * still add up (dozens of sessions in one baseline), so the frame is capped.
+ */
+export const LITE_PROJECTION_BUDGET_BYTES = 256 * 1024
+
 /** How many records the initial history page keeps in lite mode. */
 export const LITE_HISTORY_RECORDS = 10
 
@@ -60,12 +66,29 @@ function sizeOf(value: unknown): number {
   }
 }
 
-/** Keep the keep-list plus anything small; drop the rest. */
+/**
+ * Keep the render-critical projections, then the smallest of the rest while the
+ * frame stays under {@link LITE_PROJECTION_BUDGET_BYTES}.
+ */
 export function filterLiteProjections(projections: unknown): unknown {
   if (!isRecord(projections)) return projections
   const kept: Record<string, unknown> = {}
+  const candidates: Array<{ key: string, value: unknown, size: number }> = []
+  let used = 0
   for (const [key, value] of Object.entries(projections)) {
-    if (LITE_PROJECTION_KEEP_KEYS.has(key) || sizeOf(value) <= LITE_PROJECTION_MAX_BYTES) kept[key] = value
+    const size = sizeOf(value)
+    if (LITE_PROJECTION_KEEP_KEYS.has(key)) {
+      kept[key] = value
+      used += size
+      continue
+    }
+    if (size <= LITE_PROJECTION_MAX_BYTES) candidates.push({ key, value, size })
+  }
+  candidates.sort((left, right) => left.size - right.size)
+  for (const { key, value, size } of candidates) {
+    if (used + size > LITE_PROJECTION_BUDGET_BYTES) break
+    kept[key] = value
+    used += size
   }
   return kept
 }

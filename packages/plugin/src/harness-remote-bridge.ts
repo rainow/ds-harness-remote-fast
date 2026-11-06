@@ -669,7 +669,7 @@ export class HarnessRemoteBridge {
         let frame: HarnessRemoteFrameData = {
           streamId,
           hasValue: true,
-          ...(value === undefined ? {} : { value: historyFollow && this.compactHistoryEnabled && isCompactSnapshot(value) ? compactHistory(value) : value }),
+          ...(value === undefined ? {} : { value: historyFollow && (this.compactHistoryEnabled || isLiteModeEnabled()) && isCompactSnapshot(value) ? compactHistory(value) : value }),
         }
         if (isLiteModeEnabled()) {
           const shaped = applyLiteMode(frame) as HarnessRemoteFrameData | undefined
