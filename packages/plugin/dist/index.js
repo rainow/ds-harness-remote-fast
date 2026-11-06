@@ -83916,7 +83916,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.6.3";
+var PLUGIN_VERSION = "0.6.3-fast.1";
 
 // src/server-api.ts
 var TERMINAL_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
@@ -98158,7 +98158,7 @@ var HarnessRemoteBridge = class {
     if (TERMINAL_STREAMS.has(params.endpoint)) throw new RpcError("METHOD_NOT_ALLOWED", "Use a stream for this terminal endpoint.");
     if (["settings/update", "settings/replace", "settings/mutate"].includes(params.endpoint)) {
       const args = requestArgs(params.payload);
-      if (args.ns === "ds-harness-remote" || args.ns === "dsh-remote") {
+      if (args.ns === "ds-harness-remote-fast" || args.ns === "ds-harness-remote" || args.ns === "dsh-remote") {
         throw new RpcError("PERMISSION_DENIED", "Remote access settings can only be changed locally on the Host.");
       }
     }
@@ -98942,7 +98942,7 @@ function filterSessionListProjections(resultOrEndpoint, maybeResult) {
 }
 function filterRemotePluginInventory(endpoint, result) {
   if (!result.ok) return result;
-  const isRemote = (value) => typeof value === "string" && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
+  const isRemote = (value) => typeof value === "string" && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
   const filterEntries = (entries) => entries.filter((entry) => !isRecord22(entry) || !isRemote(entry.moduleName));
   if (endpoint === "pluginManager/listPlugins" && Array.isArray(result.value)) {
     return { ...result, value: filterEntries(result.value) };
@@ -98970,7 +98970,7 @@ function isCompactSnapshot(value) {
   return value !== null && typeof value === "object" && value.type === "snapshot";
 }
 function remoteOwnedBundleRow(row, plugin) {
-  const remoteModule = (value) => typeof value === "string" && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
+  const remoteModule = (value) => typeof value === "string" && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
   if (remoteModule(plugin ? row.moduleName : row.name)) return true;
   return !plugin && (!Array.isArray(row.rows) || row.rows.some((value) => !isRecord22(value) || remoteModule(value.moduleName)) || Array.isArray(row.overrides) && row.overrides.some((value) => remoteModule(value)));
 }
@@ -99719,8 +99719,8 @@ function runHmrSafe(run, hmr) {
 
 // src/update-check.ts
 var DIST_TAG_URLS = [
-  "https://registry.npmjs.org/-/package/ds-harness-remote/dist-tags",
-  "https://registry.npmmirror.com/-/package/ds-harness-remote/dist-tags"
+  "https://registry.npmjs.org/-/package/ds-harness-remote-fast/dist-tags",
+  "https://registry.npmmirror.com/-/package/ds-harness-remote-fast/dist-tags"
 ];
 var FETCH_TIMEOUT_MS = 1e4;
 var RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1e3;
@@ -99944,7 +99944,7 @@ ${helpText()}`);
 }
 async function register(args, runtime) {
   if (args.length !== 1 || args[0] === void 0 || args[0].trim() === "") {
-    throw new CliUsageError("Usage: ds-harness-remote register <server-token>");
+    throw new CliUsageError("Usage: ds-harness-remote-fast register <server-token>");
   }
   const context = await hostContext(runtime);
   await context.api.authorizeHostWithCode(context.identity, args[0]);
@@ -99952,11 +99952,11 @@ async function register(args, runtime) {
   return 0;
 }
 async function login(args, runtime) {
-  if (args.length > 1) throw new CliUsageError("Usage: ds-harness-remote login [provider|list]");
+  if (args.length > 1) throw new CliUsageError("Usage: ds-harness-remote-fast login [provider|list]");
   const context = await hostContext(runtime);
   const providers = (await context.api.oauthProviders()).filter((item) => item.qrStartUrl != null);
   if (args[0] === "list") {
-    write2(runtime.stdout, providers.length === 0 ? "No QR sign-in providers are available.\n" : providers.map((item) => `${item.displayName}: ds-harness-remote login ${item.id}
+    write2(runtime.stdout, providers.length === 0 ? "No QR sign-in providers are available.\n" : providers.map((item) => `${item.displayName}: ds-harness-remote-fast login ${item.id}
 `).join(""));
     return 0;
   }
@@ -100211,7 +100211,7 @@ var AcpGateway = class {
 };
 
 // src/index.ts
-var name = "ds-harness-remote";
+var name = "ds-harness-remote-fast";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["@dsh-remote/plugin"]);
 var pluginSettingsNamespace = "ds-harness-remote";
 var legacySettingsNamespace = "dsh-remote";

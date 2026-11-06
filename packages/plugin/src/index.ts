@@ -42,7 +42,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-export const name = 'ds-harness-remote'
+export const name = 'ds-harness-remote-fast'
 export { Config }
 
 // The unscoped dsh-remote package belongs to another publisher. A bare name

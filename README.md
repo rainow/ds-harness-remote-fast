@@ -123,3 +123,12 @@ git rebase upstream/main      # dist 冲突时：重新 build 后再 git add pac
 ## 许可与致谢
 
 代码来自 [liguobao/ds-harness-remote](https://github.com/liguobao/ds-harness-remote)，遵循其原许可。本分支只改「极速模式」相关逻辑，问题请先看上游 issue；确实与极速模式有关再来这边提。
+
+## npm
+
+```bash
+dsh plugin --profile web add ds-harness-remote-fast
+```
+
+包名 `ds-harness-remote-fast`（不是上游的 `ds-harness-remote`），所以可以和上游插件并存安装、互不覆盖；`cordis.patch.yml` 里的 entry id 仍是 `ds-harness-remote`，你已有的 `liteMode` 等配置不会丢。
+本仓库刻意不带 `dsh-plugin` 关键词，因此**不会出现在插件市场**里，也就不会被市场更新覆盖。
