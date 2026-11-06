@@ -29,7 +29,7 @@ const deadline = setTimeout(() => { console.error('packed WebRTC smoke timed out
 const peers = []
 try {
   const plugin = await import(entry)
-  assert.equal(plugin.name, 'ds-harness-remote')
+  assert.equal(plugin.name, 'ds-harness-remote-fast')
   assert.equal(typeof plugin.apply, 'function')
   assert.equal(nativeAttempts, 0, 'package import must not initialize native RTC')
   const runtime = await import(`${bundle}?transport-smoke`)
