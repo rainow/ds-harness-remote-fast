@@ -28,7 +28,7 @@
 - 单帧超限时**先裁剪再发送**，而不是直接断连
 - 存储与 agent 上下文完全不动，只影响出站数据；协议与客户端未改
 
-同一个大会话实测（8.7 MB 上下文）：关闭 → 首屏最大帧 **2,070,505 B** / 393 条记录（baseline 投影 1,007,578 B）；开启后**没有 >256 KB 的帧**。
+同一台 Host、同一部手机（DSH Go，`transferFrames: true`）实测两个图片较多的会话：极速模式**关闭**时首屏有 **4 条 ≥256 KB 的帧（峰值 1.44 MB）**，**开启**后**一条都没有**（全部 <256 KB）。逐帧明细见[仓库 README](https://github.com/rainow/ds-harness-remote-fast/blob/lite/README.md)。
 
 ## 安装
 
@@ -36,7 +36,7 @@
 dsh plugin --profile web add ds-harness-remote-fast
 ```
 
-- 包名是 `ds-harness-remote-fast`（上游占用 `ds-harness-remote`），可与上游插件并存安装，互不覆盖
+- 包名是 `ds-harness-remote-fast`（上游占用 `ds-harness-remote`），安装不会覆盖上游的 npm 包；同一 profile 里只启用其中一个
 - `cordis.patch.yml` 里的 entry id 仍是 `ds-harness-remote`，已有配置（`liteMode` / `serverUrl` / `role` …）迁移后不丢
 - 本包**不带 `dsh-plugin` 关键词**，因此不会出现在插件市场里，也不会被市场更新覆盖（这是刻意的：市场只会拉到上游版本）
 
@@ -48,7 +48,7 @@ dsh plugin --profile web add ds-harness-remote-fast
 
 ## 与上游的差异
 
-除极速模式相关逻辑外，本包与 `upstream/main` 保持一致，跟随上游 rebase。协议、客户端行为、数据面均未改变。
+除极速模式相关逻辑和一处后端探测的性能修正（同步 `which` 改为异步 `execFile` + 30 秒 TTL 缓存）外，本包与 `upstream/main` 保持一致，跟随上游 rebase。协议、客户端行为、数据面均未改变。
 
 ## 反馈
 

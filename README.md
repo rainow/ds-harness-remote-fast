@@ -55,9 +55,9 @@ Remote 弹窗里，紧挨着「允许控制本机」：**极速模式 [?] [开�
 | 极速模式 **关** | 4 条，合计 3,284,911 B | **1,439,894 B** | snapshot 1,262,357 / 1,439,894 B；baseline 291,330 B ×2 |
 | 极速模式 **开** | **0 条** | **< 262,144 B** | 两个会话连一条 ≥256 KB 的帧都没有产生 |
 
-也就是说，这两个会话首屏最大的那一帧从 **1.44 MB 降到 256 KB 以内（−82% 以上）**，而且不再有 291 KB 的 baseline 投影帧。
+也就是说，这两个会话首屏最大的那一帧从 **1.44 MB 降到 256 KB 以内（降幅约 82%）**，而且不再有 291 KB 的 baseline 投影帧。
 
-**为什么降这么多**：省下来的几乎全是**记录条数**（整页 393 条 → 10 条）。工具详情压缩本身只占 1–4%；插件投影（`dsh-context-lens` 这类）在 baseline 里通常是大头，被「单项 16 KB 上限 / 单帧 256 KB 总量预算」挡掉。
+**为什么降这么多**：省下来的几乎全是**记录条数**（首屏几百条的整页 → 10 条）；工具详情压缩只是小头。插件投影（`dsh-context-lens` 这类）在 baseline 里通常是大头，被「单项 16 KB 上限 / 单帧 256 KB 总量预算」挡掉。
 
 **它不省什么**：对话过程中的增量帧、心跳/信令、Host 侧的 CPU 与磁盘（快照照旧生成，只在出站前裁剪）。
 
@@ -83,5 +83,5 @@ git rebase upstream/main      # dist 冲突时：重新 build 后再 git add pac
 dsh plugin --profile web add ds-harness-remote-fast
 ```
 
-包名 `ds-harness-remote-fast`（不是上游的 `ds-harness-remote`），所以可以和上游插件并存安装、互不覆盖；`cordis.patch.yml` 里的 entry id 仍是 `ds-harness-remote`，你已有的 `liteMode` 等配置不会丢。
+包名 `ds-harness-remote-fast`（不是上游的 `ds-harness-remote`），安装不会覆盖上游的 npm 包；`cordis.patch.yml` 里的 entry id 仍是 `ds-harness-remote`，你已有的 `liteMode` 等配置不会丢。同一个 profile 里只启用其中一个。
 本仓库刻意不带 `dsh-plugin` 关键词，因此**不会出现在插件市场**里，也就不会被市场更新覆盖。
