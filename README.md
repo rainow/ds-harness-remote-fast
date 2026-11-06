@@ -40,6 +40,18 @@
 
 在它们支持新参数之前，Host 端兜底是唯一能让大会话不断连的手段。所以 PR 先关掉，fork 自己维护；等上游真的落地 per-connection 参数（`projection / maxRecords / maxBytes`），这个开关会退化成「默认值」，那时再回归官方包。
 
+## 强制缩略图（默认关闭）
+
+远端客户端读图走 `session/attachment`（历史里只有 `ImageAttachmentRef` 引用，没有图片字节），所以缩略图就是在这个响应上做：
+
+- 只有原图 **> 256 KB** 才处理（分级阈值，小图和表情包原样给）
+- 统一重编码为 JPEG：最长边 **1024px**、质量 **75**；用 `sharp`（若已安装）→ macOS `sips` → Linux `convert`/`magick` → 纯 JS PNG，全部失败就原样转发
+- 按 `attachmentId`（内容哈希）缓存，同一张图只转一次；并发上限 2
+- 返回时 **`attachment` 引用原样保留**（`bytes/width/height` 不变）——客户端会用记录里的元数据校验返回值，改了就会被判"图片不可用"
+- 代价：**点开大图看到的也是这张缩略图**，细节会丢；所以默认关闭，由用户显式开启
+
+开关在 Remote 弹窗里（「极速模式」右边），也可以在对话里让 Host 打开或关掉——插件注册了 agent 工具 `remote_thumbnail_mode`，切换会持久化到配置。
+
 ## 与主分支的区别
 
 | | 上游 `main` | 本分支 `lite` |
