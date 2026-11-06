@@ -679,7 +679,19 @@ export class HarnessRemoteBridge {
           if (shaped === undefined) continue
           frame = shaped
         }
-        if (encodeMessage(createEvent('harness.remote.frame', frame)).byteLength > MAX_SECURE_MESSAGE_BYTES) {
+        const bytes = encodeMessage(createEvent('harness.remote.frame', frame)).byteLength
+        // Peak-only telemetry: fast mode is usually visible here, and logging
+        // every small frame would drown the log.
+        if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
+          const value = isJsonRecord(frame.value) ? frame.value : undefined
+          this.logger?.info('outbound frame', {
+            type: typeof value?.type === 'string' ? value.type : 'unknown',
+            bytes,
+            lite: isLiteModeEnabled(),
+            transferFrames,
+          })
+        }
+        if (bytes > MAX_SECURE_MESSAGE_BYTES) {
           if (!transferFrames) throw new Error('Oversized Harness Remote frame')
           await this.transferStreamFrame(frame, signal)
         } else {
@@ -1152,6 +1164,9 @@ function needsDirectoryFallback(result: TypertRpcResult): boolean {
     || message.includes('brower capability')
     || message.includes('directory-picker-unavailable')
 }
+
+/** Frames at or above this size are logged so an A/B run is measurable. */
+const FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024
 
 const SESSION_PROJECTION_WHITELIST = new Set([
   'permissions',

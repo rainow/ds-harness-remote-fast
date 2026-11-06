@@ -98706,7 +98706,17 @@ var HarnessRemoteBridge = class {
           if (shaped === void 0) continue;
           frame = shaped;
         }
-        if (encodeMessage(createEvent("harness.remote.frame", frame)).byteLength > MAX_SECURE_MESSAGE_BYTES) {
+        const bytes = encodeMessage(createEvent("harness.remote.frame", frame)).byteLength;
+        if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
+          const value2 = isJsonRecord(frame.value) ? frame.value : void 0;
+          this.logger?.info("outbound frame", {
+            type: typeof value2?.type === "string" ? value2.type : "unknown",
+            bytes,
+            lite: isLiteModeEnabled(),
+            transferFrames
+          });
+        }
+        if (bytes > MAX_SECURE_MESSAGE_BYTES) {
           if (!transferFrames) throw new Error("Oversized Harness Remote frame");
           await this.transferStreamFrame(frame, signal);
         } else {
@@ -99073,6 +99083,7 @@ function needsDirectoryFallback(result) {
   const message = result.error.message.toLocaleLowerCase();
   return code.includes("capability") || code === "directory-picker/unavailable" || code === "directory-picker-unavailable" || message.includes("browse capability") || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
 }
+var FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024;
 var SESSION_PROJECTION_WHITELIST = /* @__PURE__ */ new Set([
   "permissions",
   "remoteStatusKnown",
