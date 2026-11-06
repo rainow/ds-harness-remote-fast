@@ -6,7 +6,7 @@ import {
   setThumbnailModeEnabled,
 } from '../src/thumbnail-mode.js'
 import { clearThumbnailCache, shouldThumbnail, thumbnailAttachmentValue, thumbnailImage } from '../src/image-thumbnail.js'
-import { thumbnailModeTools } from '../src/remote-tools.js'
+import { localSwitchTools } from '../src/remote-tools.js'
 
 /** Uncompressed 24-bit BMP: easy to build without an image dependency. */
 function bigBmp(width: number, height: number): Buffer {
@@ -86,19 +86,22 @@ describe('forced thumbnail mode', () => {
     await expect(thumbnailAttachmentValue({ attachment: { mediaType: 'text/plain' }, data: 'AAAA' })).resolves.toBeUndefined()
   })
 
-  it('exposes an agent tool that flips the switch through the Host settings', async () => {
-    const calls: boolean[] = []
-    const [tool] = thumbnailModeTools({
+  it('exposes agent tools that flip both local switches through Host settings', async () => {
+    const calls: string[] = []
+    const tools = localSwitchTools({
+      fastMode: () => true,
+      setFastMode: async (enabled: boolean) => { calls.push(`fast:${enabled}`); return enabled },
       thumbnailMode: () => false,
-      setThumbnailMode: async (enabled: boolean) => {
-        calls.push(enabled)
-        return enabled
-      },
+      setThumbnailMode: async (enabled: boolean) => { calls.push(`thumb:${enabled}`); return enabled },
     })
-    expect(tool?.name).toBe('remote_thumbnail_mode')
-    expect(await tool!.execute({ enabled: true }, { signal: new AbortController().signal })).toEqual({ enabled: true })
-    expect(calls).toEqual([true])
-    await expect(Promise.resolve().then(() => tool!.execute({ enabled: 'yes' }, { signal: new AbortController().signal })))
+    const fast = tools.find(tool => tool.name === 'remote_fast_mode')
+    const thumb = tools.find(tool => tool.name === 'remote_thumbnail_mode')
+    expect(fast).toBeDefined()
+    expect(thumb).toBeDefined()
+    expect(await fast!.execute({ enabled: false }, { signal: new AbortController().signal })).toEqual({ enabled: false })
+    expect(await thumb!.execute({ enabled: true }, { signal: new AbortController().signal })).toEqual({ enabled: true })
+    expect(calls).toEqual(['fast:false', 'thumb:true'])
+    await expect(Promise.resolve().then(() => thumb!.execute({ enabled: 'yes' }, { signal: new AbortController().signal })))
       .rejects.toBeTruthy()
   })
 

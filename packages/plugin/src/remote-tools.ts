@@ -153,28 +153,37 @@ export function remoteSessionTools(resolve: () => Pick<ClientModeRuntime, 'runSe
 
 /** Host-local switches the local agent may flip on the user's behalf. */
 export interface RemoteLocalSwitches {
+  /** Persist and apply fast (lite) mode; resolves to the new state. */
+  setFastMode(enabled: boolean): Promise<boolean>
+  fastMode(): boolean
   /** Persist and apply forced-thumbnail mode; resolves to the new state. */
   setThumbnailMode(enabled: boolean): Promise<boolean>
   thumbnailMode(): boolean
 }
 
-/** Agent tool for the Host-side forced-thumbnail switch (no remote host involved). */
-export function thumbnailModeTools(switches: RemoteLocalSwitches): RemoteToolDefinition[] {
+/** Both Host-local switches, so the user can flip them from the chat. */
+export function localSwitchTools(switches: RemoteLocalSwitches): RemoteToolDefinition[] {
   const input = z.object({ enabled: z.boolean() }).strict()
-  return [{
-    name: 'remote_thumbnail_mode',
-    description: 'Turn this Host\'s forced-thumbnail mode on or off. When on, images larger than 256 KB that any remote client reads are re-encoded as a small JPEG (longest edge 1024px, quality 75); the image opened full-screen will be that thumbnail too. Use it when the user asks to save bandwidth or to stop sending full-size images. Applies immediately and persists for this profile.',
-    parameters: object({ enabled: { type: 'boolean' } }, ['enabled']),
-    output: {
-      schema: object({ enabled: { type: 'boolean' } }, ['enabled']),
-      render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
+  const output = {
+    schema: object({ enabled: { type: 'boolean' } }, ['enabled']),
+    render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
+  }
+  return [
+    {
+      name: 'remote_fast_mode',
+      description: 'Turn this Host\'s fast mode (极速模式) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.',
+      parameters: object({ enabled: { type: 'boolean' } }, ['enabled']),
+      output,
+      execute: async (args: unknown) => ({ enabled: await switches.setFastMode(input.parse(args).enabled) }),
     },
-    execute: async (args: unknown) => {
-      const parsed = input.parse(args)
-      const enabled = await switches.setThumbnailMode(parsed.enabled)
-      return { enabled }
+    {
+      name: 'remote_thumbnail_mode',
+      description: 'Turn this Host\'s forced-thumbnail mode (强制缩略图) on or off. When on, images larger than 256 KB that any remote client reads are re-encoded as a small JPEG (longest edge 1024px, quality 75); the image opened full-screen will be that thumbnail too. Off by default. Applies immediately and persists for this profile. Use it when the user asks to save bandwidth or to stop sending full-size images.',
+      parameters: object({ enabled: { type: 'boolean' } }, ['enabled']),
+      output,
+      execute: async (args: unknown) => ({ enabled: await switches.setThumbnailMode(input.parse(args).enabled) }),
     },
-  }]
+  ]
 }
 
 export function installRemoteDiscoveryTools(
@@ -187,7 +196,7 @@ export function installRemoteDiscoveryTools(
     const definitions = [
       ...remoteDiscoveryTools(resolve),
       ...remoteSessionTools(resolve),
-      ...(switches === undefined ? [] : thumbnailModeTools(switches)),
+      ...(switches === undefined ? [] : localSwitchTools(switches)),
     ]
     for (const definition of definitions) {
       toolContext.effect(() => tools.register(definition))

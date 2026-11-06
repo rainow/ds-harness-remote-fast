@@ -99892,22 +99892,28 @@ function remoteSessionTools(resolve9) {
     }
   }));
 }
-function thumbnailModeTools(switches) {
+function localSwitchTools(switches) {
   const input4 = external_exports.object({ enabled: external_exports.boolean() }).strict();
-  return [{
-    name: "remote_thumbnail_mode",
-    description: "Turn this Host's forced-thumbnail mode on or off. When on, images larger than 256 KB that any remote client reads are re-encoded as a small JPEG (longest edge 1024px, quality 75); the image opened full-screen will be that thumbnail too. Use it when the user asks to save bandwidth or to stop sending full-size images. Applies immediately and persists for this profile.",
-    parameters: object4({ enabled: { type: "boolean" } }, ["enabled"]),
-    output: {
-      schema: object4({ enabled: { type: "boolean" } }, ["enabled"]),
-      render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+  const output2 = {
+    schema: object4({ enabled: { type: "boolean" } }, ["enabled"]),
+    render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+  };
+  return [
+    {
+      name: "remote_fast_mode",
+      description: "Turn this Host's fast mode (\u6781\u901F\u6A21\u5F0F) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.",
+      parameters: object4({ enabled: { type: "boolean" } }, ["enabled"]),
+      output: output2,
+      execute: async (args) => ({ enabled: await switches.setFastMode(input4.parse(args).enabled) })
     },
-    execute: async (args) => {
-      const parsed = input4.parse(args);
-      const enabled3 = await switches.setThumbnailMode(parsed.enabled);
-      return { enabled: enabled3 };
+    {
+      name: "remote_thumbnail_mode",
+      description: "Turn this Host's forced-thumbnail mode (\u5F3A\u5236\u7F29\u7565\u56FE) on or off. When on, images larger than 256 KB that any remote client reads are re-encoded as a small JPEG (longest edge 1024px, quality 75); the image opened full-screen will be that thumbnail too. Off by default. Applies immediately and persists for this profile. Use it when the user asks to save bandwidth or to stop sending full-size images.",
+      parameters: object4({ enabled: { type: "boolean" } }, ["enabled"]),
+      output: output2,
+      execute: async (args) => ({ enabled: await switches.setThumbnailMode(input4.parse(args).enabled) })
     }
-  }];
+  ];
 }
 function installRemoteDiscoveryTools(ctx, resolve9, switches) {
   ctx.inject(["tools"], (toolContext) => {
@@ -99915,7 +99921,7 @@ function installRemoteDiscoveryTools(ctx, resolve9, switches) {
     const definitions = [
       ...remoteDiscoveryTools(resolve9),
       ...remoteSessionTools(resolve9),
-      ...switches === void 0 ? [] : thumbnailModeTools(switches)
+      ...switches === void 0 ? [] : localSwitchTools(switches)
     ];
     for (const definition of definitions) {
       toolContext.effect(() => tools.register(definition));
@@ -100674,14 +100680,18 @@ async function activate(ctx, readConfig, entryId) {
     };
   }, "dsh-remote lifecycle");
   if (config2.remoteTools?.enabled) {
+    const persistSwitch = async (key, enabled3) => {
+      const current = editableConfig(resolveConfig(readConfig()));
+      await settingsBinding.replace({ ...current, [key]: enabled3 });
+      if (key === "liteMode") setLiteModeEnabled(enabled3);
+      else setThumbnailModeEnabled(enabled3);
+      return enabled3;
+    };
     installRemoteDiscoveryTools(ctx, () => closed ? void 0 : clientRuntime, settingsBinding === void 0 ? void 0 : {
+      fastMode: () => resolveConfig(readConfig()).liteMode === true,
+      setFastMode: (enabled3) => persistSwitch("liteMode", enabled3),
       thumbnailMode: () => resolveConfig(readConfig()).thumbnailMode === true,
-      setThumbnailMode: async (enabled3) => {
-        const current = editableConfig(resolveConfig(readConfig()));
-        await settingsBinding.replace({ ...current, thumbnailMode: enabled3 });
-        setThumbnailModeEnabled(enabled3);
-        return enabled3;
-      }
+      setThumbnailMode: (enabled3) => persistSwitch("thumbnailMode", enabled3)
     });
   }
 }
