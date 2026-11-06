@@ -151,10 +151,45 @@ export function remoteSessionTools(resolve: () => Pick<ClientModeRuntime, 'runSe
   }))
 }
 
-export function installRemoteDiscoveryTools(ctx: Context, resolve: () => ClientModeRuntime | undefined): void {
+/** Host-local switches the local agent may flip on the user's behalf. */
+export interface RemoteLocalSwitches {
+  /** Persist and apply forced-thumbnail mode; resolves to the new state. */
+  setThumbnailMode(enabled: boolean): Promise<boolean>
+  thumbnailMode(): boolean
+}
+
+/** Agent tool for the Host-side forced-thumbnail switch (no remote host involved). */
+export function thumbnailModeTools(switches: RemoteLocalSwitches): RemoteToolDefinition[] {
+  const input = z.object({ enabled: z.boolean() }).strict()
+  return [{
+    name: 'remote_thumbnail_mode',
+    description: 'Turn this Host\'s forced-thumbnail mode on or off. When on, images larger than 256 KB that any remote client reads are re-encoded as a small JPEG (longest edge 1024px, quality 75); the image opened full-screen will be that thumbnail too. Use it when the user asks to save bandwidth or to stop sending full-size images. Applies immediately and persists for this profile.',
+    parameters: object({ enabled: { type: 'boolean' } }, ['enabled']),
+    output: {
+      schema: object({ enabled: { type: 'boolean' } }, ['enabled']),
+      render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
+    },
+    execute: async (args: unknown) => {
+      const parsed = input.parse(args)
+      const enabled = await switches.setThumbnailMode(parsed.enabled)
+      return { enabled }
+    },
+  }]
+}
+
+export function installRemoteDiscoveryTools(
+  ctx: Context,
+  resolve: () => ClientModeRuntime | undefined,
+  switches?: RemoteLocalSwitches,
+): void {
   ctx.inject(['tools'], toolContext => {
     const tools = toolContext.get('tools') as { register(definition: RemoteToolDefinition): () => void }
-    for (const definition of [...remoteDiscoveryTools(resolve), ...remoteSessionTools(resolve)]) {
+    const definitions = [
+      ...remoteDiscoveryTools(resolve),
+      ...remoteSessionTools(resolve),
+      ...(switches === undefined ? [] : thumbnailModeTools(switches)),
+    ]
+    for (const definition of definitions) {
       toolContext.effect(() => tools.register(definition))
     }
   })

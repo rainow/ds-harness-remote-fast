@@ -1,4 +1,6 @@
 import { compactHistory } from './compact-history.js'
+import { thumbnailAttachmentValue } from './image-thumbnail.js'
+import { isThumbnailModeEnabled } from './thumbnail-mode.js'
 import { applyLiteMode, isLiteModeEnabled } from './lite-mode.js'
 import { randomUUID } from 'node:crypto'
 import { lstat, realpath, stat } from 'node:fs/promises'
@@ -371,7 +373,8 @@ export class HarnessRemoteBridge {
       const wireResult = normalizeWorkspaceBinaryResult(params.endpoint,
         this.compactHistoryEnabled && ['session/page', 'session/events', 'session/history', 'subagent/history'].includes(params.endpoint)
           ? compactHistory(filteredResult) : filteredResult)
-      return reservation === undefined ? wireResult : this.terminal.result(params.endpoint, params.payload, wireResult, reservation)
+      const shaped = await applyThumbnailMode(params.endpoint, wireResult)
+      return reservation === undefined ? shaped : this.terminal.result(params.endpoint, params.payload, shaped, reservation)
     } catch (error) {
       if (reservation !== undefined) this.terminal.result(params.endpoint, params.payload, { ok: false, error: { code: 'FAILED', message: '', details: {} } }, reservation)
       if (params.endpoint === 'directoryPicker/list') {
@@ -1075,6 +1078,22 @@ function decodeCanonicalBase64(value: string): Uint8Array {
   const bytes = Buffer.from(value, 'base64')
   if (bytes.toString('base64') !== value) throw new RpcError('INVALID_MESSAGE', 'The Harness Remote transfer chunk is invalid.')
   return bytes
+}
+
+/**
+ * Forced-thumbnail mode: answer `session/attachment` with a downscaled JPEG.
+ * The recorded reference (bytes / width / height) is echoed back unchanged
+ * because clients verify it and reject a mismatch; only the payload shrinks.
+ */
+async function applyThumbnailMode(endpoint: string, result: TypertRpcResult): Promise<TypertRpcResult> {
+  if (endpoint !== 'session/attachment' || !isThumbnailModeEnabled()) return result
+  if (result.ok !== true || !isJsonRecord(result.value)) return result
+  try {
+    const shaped = await thumbnailAttachmentValue(result.value)
+    return shaped === undefined ? result : { ok: true, value: shaped }
+  } catch {
+    return result
+  }
 }
 
 function normalizeWorkspaceBinaryResult(endpoint: string, result: TypertRpcResult): TypertRpcResult {

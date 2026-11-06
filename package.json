@@ -1,6 +1,6 @@
 {
   "name": "ds-harness-remote-fast",
-  "version": "0.6.3-fast.3",
+  "version": "0.6.3-fast.4",
   "description": "P2P-based, end-to-end encrypted remote access to DeepSeek Harness, CodeX, Claude Code, Pi, and other workspaces from web and mobile clients.",
   "keywords": [
     "deepseek",

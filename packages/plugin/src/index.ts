@@ -25,6 +25,8 @@ import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 import type { FileViewerHostServiceLike } from './file-viewer-bridge.js'
 import { createPluginRouteDispatcher, type PluginRouteConnectionLike } from './plugin-route-dispatcher.js'
 import { installRemoteDiscoveryTools } from './remote-tools.js'
+import { editableConfig } from './control-runtime.js'
+import { setThumbnailModeEnabled } from './thumbnail-mode.js'
 import { runHmrSafe, type HmrContextLike } from './hmr-safe-settings.js'
 import { PluginUpdateChecker } from './update-check.js'
 import {
@@ -353,7 +355,17 @@ async function activate(
       await runtime.close()
     }
   }, 'dsh-remote lifecycle')
-  if (config.remoteTools?.enabled) installRemoteDiscoveryTools(ctx, () => closed ? undefined : clientRuntime)
+  if (config.remoteTools?.enabled) {
+    installRemoteDiscoveryTools(ctx, () => closed ? undefined : clientRuntime, settingsBinding === undefined ? undefined : {
+      thumbnailMode: () => resolveConfig(readConfig()).thumbnailMode === true,
+      setThumbnailMode: async (enabled: boolean) => {
+        const current = editableConfig(resolveConfig(readConfig()))
+        await settingsBinding.replace({ ...current, thumbnailMode: enabled })
+        setThumbnailModeEnabled(enabled)
+        return enabled
+      },
+    })
+  }
 }
 
 /**

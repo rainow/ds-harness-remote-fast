@@ -11,6 +11,8 @@ export interface Config {
   logLevel?: 'debug' | 'info' | 'warn' | 'error'
   /** Fast mode: trim what a remote client receives. Defaults to true. */
   liteMode?: boolean
+  /** Forced thumbnails: downscale images before a remote client reads them. Defaults to false. */
+  thumbnailMode?: boolean
   reconnect?: boolean | {
     initialDelayMs?: number
     maxDelayMs?: number

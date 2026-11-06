@@ -4,6 +4,7 @@ import { LoopbackHost } from './loopback-host.js'
 import { TerminalPolicy } from './terminal-policy.js'
 import { createEvent, type RemoteWorkspaceTypeDescription } from '@dsh-remote/protocol'
 import { setLiteModeEnabled } from './lite-mode.js'
+import { setThumbnailModeEnabled } from './thumbnail-mode.js'
 import { ConnectionController } from './connection-controller.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore } from './identity-store.js'
@@ -95,6 +96,7 @@ export class HostPluginRuntime {
   ) {
     this.terminalEnabled = config.terminal.enabled
     setLiteModeEnabled(config.liteMode === true)
+    setThumbnailModeEnabled(config.thumbnailMode === true)
     this.loopbackPorts = [...config.loopback.ports]
     this.codex = new CodexRemoteDomain(config.codex, logger)
     this.acp = new AcpRemoteGateway(config.acp ?? { enabled: false, backends: [] }, logger, undefined, undefined, () => this.terminalEnabled, this.terminalSpawner)

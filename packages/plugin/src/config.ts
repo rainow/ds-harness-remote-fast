@@ -31,6 +31,12 @@ export interface Config {
    * payload from megabytes to kilobytes on large sessions. Default: false.
    */
   liteMode?: boolean
+  /**
+   * Re-encode images larger than 256 KB as small JPEGs before a remote client
+   * reads them. Clients still see the recorded attachment reference, so an
+   * image opened full-screen is the thumbnail. Default: false.
+   */
+  thumbnailMode?: boolean
   reconnect?: boolean | {
     initialDelayMs?: number
     maxDelayMs?: number
@@ -81,6 +87,7 @@ export interface ResolvedConfig {
   rotatePinnedPeerKey: boolean
   logLevel: 'debug' | 'info' | 'warn' | 'error'
   liteMode: boolean
+  thumbnailMode: boolean
   reconnect: {
     enabled: boolean
     initialDelayMs: number
@@ -125,6 +132,7 @@ const entryConfigSchema = s.object({
   rotatePinnedPeerKey: s.boolean(),
   logLevel: s.union(['debug', 'info', 'warn', 'error'] as const),
   liteMode: s.boolean().default(true),
+  thumbnailMode: s.boolean().default(false),
   reconnect: s.union([
     s.boolean(),
     s.object({
@@ -182,6 +190,7 @@ const configSchema = z.object({
   rotatePinnedPeerKey: z.boolean().optional(),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   liteMode: z.boolean().optional(),
+  thumbnailMode: z.boolean().optional(),
   reconnect: reconnectSchema.optional(),
   codex: z.object({
     enabled: z.boolean().optional(),
@@ -227,6 +236,7 @@ export function resolveConfig(input: ConfigInput = {}, env: NodeJS.ProcessEnv = 
     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
     logLevel: parsed.logLevel ?? 'info',
     liteMode: parsed.liteMode !== false,
+    thumbnailMode: parsed.thumbnailMode === true,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,

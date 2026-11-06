@@ -201,6 +201,7 @@ interface PluginSettings {
   forceRelay?: boolean
   logLevel?: 'debug' | 'info' | 'warn' | 'error'
   liteMode?: boolean
+  thumbnailMode?: boolean
   reconnect?: boolean | {
     enabled?: boolean
     initialDelayMs?: number

@@ -80,9 +80,63 @@ function createLiteModeSwitch(React: ClientReact) {
   }
 }
 
+function createThumbnailModeSwitch(React: ClientReact) {
+  return function ThumbnailModeSwitch(props: { control: <T>(endpoint: string, payload?: unknown) => Promise<T>; t: Translate }) {
+    const [enabled, setEnabled] = React.useState(false)
+    const [busy, setBusy] = React.useState(false)
+    const [showHint, setShowHint] = React.useState(false)
+    React.useEffect(() => {
+      props.control<PluginSettingsView>('settings.get')
+        .then(view => setEnabled(view.config.thumbnailMode === true))
+        .catch(() => undefined)
+    }, [props.control])
+    const toggle = async (next: boolean) => {
+      setEnabled(next)
+      setBusy(true)
+      try {
+        const view = await props.control<PluginSettingsView>('settings.thumbnail.set', { enabled: next })
+        setEnabled(view.config.thumbnailMode === true)
+      } catch {
+        setEnabled(!next)
+      } finally {
+        setBusy(false)
+      }
+    }
+    const hint = props.t('thumbnailModeHint')
+    return React.createElement('div', {
+      className: 'dshRemoteHostControlToggle',
+      style: { marginLeft: '14px', position: 'relative' },
+    },
+      React.createElement('span', { title: hint, style: { cursor: 'help' } }, props.t('thumbnailMode')),
+      React.createElement('button', {
+        type: 'button',
+        title: hint,
+        'aria-label': hint,
+        onClick: () => setShowHint(!showHint),
+        style: { width: '14px', height: '14px', borderRadius: '50%', border: '1px solid currentColor', background: 'transparent', color: 'inherit', fontSize: '10px', lineHeight: '12px', padding: '0', cursor: 'pointer', opacity: 0.65, fontFamily: 'inherit' },
+      }, '?'),
+      React.createElement('input', {
+        type: 'checkbox',
+        role: 'switch',
+        checked: enabled,
+        disabled: busy,
+        'aria-label': props.t('thumbnailMode'),
+        onChange: (event: Event) => void toggle((event.target as HTMLInputElement).checked),
+      }),
+      showHint
+        ? React.createElement('div', {
+          style: { position: 'absolute', top: '100%', left: '0', zIndex: 30, marginTop: '6px', width: '300px', padding: '8px 10px', borderRadius: '6px', background: 'rgba(24,24,28,0.94)', color: '#fff', fontSize: '12px', fontWeight: 400, lineHeight: '1.5', boxShadow: '0 4px 16px rgba(0,0,0,0.28)', whiteSpace: 'normal' },
+        }, hint)
+        : null,
+    )
+  }
+}
+
+
 export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalRenderer) {
   const ServerNotice = createServerNotice(React)
   const LiteModeSwitch = createLiteModeSwitch(React)
+  const ThumbnailModeSwitch = createThumbnailModeSwitch(React)
   const RemoteProgressView = createRemoteProgressView(React)
 
   /**
@@ -1401,6 +1455,7 @@ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalR
                         onChange: (event: Event) => void setCurrentDeviceControl((event.target as HTMLInputElement).checked),
                       })) : null,
                     React.createElement(LiteModeSwitch, { control: props.control, t }),
+                    React.createElement(ThumbnailModeSwitch, { control: props.control, t }),
                     connectedMenu)),
                 React.createElement('div', {
                   className: `dshRemoteHostList${connectingHost === undefined ? '' : ' isCollapsed'}`,
