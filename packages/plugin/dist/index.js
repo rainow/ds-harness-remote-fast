@@ -95771,9 +95771,20 @@ var PluginControlRuntime = class {
     };
   }
 };
+var COMMAND_AVAILABILITY_TTL_MS = 3e4;
+var commandAvailability = /* @__PURE__ */ new Map();
 function backendCommandAvailable(backend, command) {
   if (!command || typeof command !== "string" || command.trim().length === 0) return false;
   const trimmed = command.trim();
+  const cacheKey = `${backend}\0${trimmed}`;
+  const now = Date.now();
+  const cached2 = commandAvailability.get(cacheKey);
+  if (cached2 !== void 0 && now - cached2.at < COMMAND_AVAILABILITY_TTL_MS) return cached2.value;
+  const value = probeBackendCommand(backend, trimmed);
+  commandAvailability.set(cacheKey, { value, at: now });
+  return value;
+}
+function probeBackendCommand(backend, trimmed) {
   if (defaultCheckExecutable(trimmed)) return true;
   const candidates = backend === "codex" ? codexBinaryCandidates(trimmed) : backend === "cursor" || backend === "antigravity" || backend === "opencode" ? cursorBinaryCandidates(trimmed) : [trimmed];
   return candidates.some((candidate) => defaultCheckExecutable(candidate) || commandAvailable(candidate));
