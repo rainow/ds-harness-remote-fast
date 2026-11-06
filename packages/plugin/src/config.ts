@@ -124,7 +124,7 @@ const entryConfigSchema = s.object({
   forceRelay: s.boolean(),
   rotatePinnedPeerKey: s.boolean(),
   logLevel: s.union(['debug', 'info', 'warn', 'error'] as const),
-  liteMode: s.boolean(),
+  liteMode: s.boolean().default(true),
   reconnect: s.union([
     s.boolean(),
     s.object({
@@ -226,7 +226,7 @@ export function resolveConfig(input: ConfigInput = {}, env: NodeJS.ProcessEnv = 
     forceRelay: parsed.forceRelay ?? false,
     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
     logLevel: parsed.logLevel ?? 'info',
-    liteMode: parsed.liteMode === true,
+    liteMode: parsed.liteMode !== false,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,

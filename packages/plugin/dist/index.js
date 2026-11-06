@@ -83767,7 +83767,7 @@ var entryConfigSchema = Schema.object({
   forceRelay: Schema.boolean(),
   rotatePinnedPeerKey: Schema.boolean(),
   logLevel: Schema.union(["debug", "info", "warn", "error"]),
-  liteMode: Schema.boolean(),
+  liteMode: Schema.boolean().default(true),
   reconnect: Schema.union([
     Schema.boolean(),
     Schema.object({
@@ -83853,7 +83853,7 @@ function resolveConfig(input4 = {}, env = process.env) {
     forceRelay: parsed.forceRelay ?? false,
     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
     logLevel: parsed.logLevel ?? "info",
-    liteMode: parsed.liteMode === true,
+    liteMode: parsed.liteMode !== false,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,
@@ -86890,6 +86890,7 @@ var LITE_PROJECTION_KEEP_KEYS = /* @__PURE__ */ new Set([
   "imageLimits"
 ]);
 var LITE_PROJECTION_MAX_BYTES = 16 * 1024;
+var LITE_PROJECTION_BUDGET_BYTES = 256 * 1024;
 var LITE_HISTORY_RECORDS = 10;
 var enabled = false;
 function isLiteModeEnabled() {
@@ -86911,8 +86912,22 @@ function sizeOf(value) {
 function filterLiteProjections(projections) {
   if (!isRecord11(projections)) return projections;
   const kept = {};
+  const candidates = [];
+  let used = 0;
   for (const [key, value] of Object.entries(projections)) {
-    if (LITE_PROJECTION_KEEP_KEYS.has(key) || sizeOf(value) <= LITE_PROJECTION_MAX_BYTES) kept[key] = value;
+    const size2 = sizeOf(value);
+    if (LITE_PROJECTION_KEEP_KEYS.has(key)) {
+      kept[key] = value;
+      used += size2;
+      continue;
+    }
+    if (size2 <= LITE_PROJECTION_MAX_BYTES) candidates.push({ key, value, size: size2 });
+  }
+  candidates.sort((left, right) => left.size - right.size);
+  for (const { key, value, size: size2 } of candidates) {
+    if (used + size2 > LITE_PROJECTION_BUDGET_BYTES) break;
+    kept[key] = value;
+    used += size2;
   }
   return kept;
 }
@@ -98415,7 +98430,7 @@ var HarnessRemoteBridge = class {
         let frame = {
           streamId,
           hasValue: true,
-          ...value === void 0 ? {} : { value: historyFollow && this.compactHistoryEnabled && isCompactSnapshot(value) ? compactHistory(value) : value }
+          ...value === void 0 ? {} : { value: historyFollow && (this.compactHistoryEnabled || isLiteModeEnabled()) && isCompactSnapshot(value) ? compactHistory(value) : value }
         };
         if (isLiteModeEnabled()) {
           const shaped = applyLiteMode(frame);
