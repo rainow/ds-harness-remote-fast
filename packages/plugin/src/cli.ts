@@ -89,7 +89,7 @@ export async function runCli(
 
 async function register(args: readonly string[], runtime: CliRuntime): Promise<number> {
   if (args.length !== 1 || args[0] === undefined || args[0].trim() === '') {
-    throw new CliUsageError('Usage: ds-harness-remote register <server-token>')
+    throw new CliUsageError('Usage: ds-harness-remote-fast register <server-token>')
   }
   const context = await hostContext(runtime)
   await context.api.authorizeHostWithCode(context.identity, args[0])
@@ -98,12 +98,12 @@ async function register(args: readonly string[], runtime: CliRuntime): Promise<n
 }
 
 async function login(args: readonly string[], runtime: CliRuntime): Promise<number> {
-  if (args.length > 1) throw new CliUsageError('Usage: ds-harness-remote login [provider|list]')
+  if (args.length > 1) throw new CliUsageError('Usage: ds-harness-remote-fast login [provider|list]')
   const context = await hostContext(runtime)
   const providers = (await context.api.oauthProviders()).filter(item => item.qrStartUrl != null)
   if (args[0] === 'list') {
     write(runtime.stdout, providers.length === 0 ? 'No QR sign-in providers are available.\n'
-      : providers.map(item => `${item.displayName}: ds-harness-remote login ${item.id}\n`).join(''))
+      : providers.map(item => `${item.displayName}: ds-harness-remote-fast login ${item.id}\n`).join(''))
     return 0
   }
   const selected = args[0] === undefined

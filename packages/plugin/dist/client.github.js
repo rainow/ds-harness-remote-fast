@@ -4478,7 +4478,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
                     ),
                     updateNotice === void 0 ? null : React.createElement("a", {
                       className: "dshRemoteAccountUpdate",
-                      href: "https://github.com/liguobao/ds-harness-remote/releases",
+                      href: "https://github.com/rainow/ds-harness-remote-fast/releases",
                       target: "_blank",
                       rel: "noreferrer",
                       title: updateNotice
@@ -5324,7 +5324,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
   }
 
   // src/client.ts
-  var clientModuleId = "ds-harness-remote", controlRouteBackoffStepsMs = [1e3, 2e3, 5e3, 1e4, 3e4], ControlRouteUnavailableError = class extends Error {
+  var clientModuleId = "ds-harness-remote-fast", controlRouteBackoffStepsMs = [1e3, 2e3, 5e3, 1e4, 3e4], ControlRouteUnavailableError = class extends Error {
     constructor(message) {
       super(message), this.name = "ControlRouteUnavailableError";
     }
@@ -5357,7 +5357,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         }
       })(), RemotePluginOptions = createRemotePluginOptions(React);
       function RemotePluginSettingsAction(props) {
-        if (pluginSubjectPackageName(props.subject) !== "ds-harness-remote") return null;
+        if (!["ds-harness-remote-fast", "ds-harness-remote"].includes(pluginSubjectPackageName(props.subject) ?? "")) return null;
         let label = props.t("openPluginSettings");
         return React.createElement("button", {
           type: "button",
@@ -5707,7 +5707,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           })
         }, RemoteWorkspaceAction)), ctx.slots.inject("plugins.row.config", () => ctx.slots.register({
           name: "plugins.row.config",
-          key: "ds-harness-remote#ds-harness-remote",
+          key: "ds-harness-remote-fast#ds-harness-remote",
           locale: localeNamespace,
           inject: () => ({
             control,
@@ -5718,7 +5718,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           })
         }, RemotePluginOptions)), ctx.slots.inject("plugins.bundle.config", () => ctx.slots.register({
           name: "plugins.bundle.config",
-          key: "ds-harness-remote",
+          key: "ds-harness-remote-fast",
           locale: localeNamespace,
           inject: () => ({
             control,

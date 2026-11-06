@@ -312,7 +312,7 @@ export class HarnessRemoteBridge {
     if (TERMINAL_STREAMS.has(params.endpoint)) throw new RpcError('METHOD_NOT_ALLOWED', 'Use a stream for this terminal endpoint.')
     if (['settings/update', 'settings/replace', 'settings/mutate'].includes(params.endpoint)) {
       const args = requestArgs(params.payload)
-      if (args.ns === 'ds-harness-remote' || args.ns === 'dsh-remote') {
+      if (args.ns === 'ds-harness-remote-fast' || args.ns === 'ds-harness-remote' || args.ns === 'dsh-remote') {
         throw new RpcError('PERMISSION_DENIED', 'Remote access settings can only be changed locally on the Host.')
       }
     }
@@ -1242,7 +1242,7 @@ export function filterSessionListProjections(
 function filterRemotePluginInventory(endpoint: string, result: TypertRpcResult): TypertRpcResult {
   if (!result.ok) return result
   const isRemote = (value: unknown): boolean => typeof value === 'string'
-    && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
+    && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
   const filterEntries = (entries: unknown[]): unknown[] => entries.filter(entry =>
     !isRecord(entry) || !isRemote(entry.moduleName))
   if (endpoint === 'pluginManager/listPlugins' && Array.isArray(result.value)) {
@@ -1281,7 +1281,7 @@ function isCompactSnapshot(value: unknown): boolean {
 /** Whether one official plugin-manager row belongs to this Remote plugin or its bundle. */
 function remoteOwnedBundleRow(row: Record<string, unknown>, plugin: boolean): boolean {
   const remoteModule = (value: unknown): boolean => typeof value === 'string'
-    && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
+    && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
   if (remoteModule(plugin ? row.moduleName : row.name)) return true
   return !plugin && (!Array.isArray(row.rows)
     || row.rows.some(value => !isRecord(value) || remoteModule(value.moduleName))
