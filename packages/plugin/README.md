@@ -14,9 +14,11 @@
 
 ## 极速模式（默认开启）
 
-![Remote 弹窗里的极速模式开关](https://raw.githubusercontent.com/rainow/ds-harness-remote-fast/lite/docs/fast-mode.webp)
+![Remote 弹窗里的极速模式开关](https://raw.githubusercontent.com/rainow/ds-harness-remote-fast/lite/docs/fast-mode.png)
 
 在 Remote 弹窗里就排在「允许控制本机」后面，**默认打开**；也可以在插件设置里关掉。关闭后行为与上游完全一致。
+
+远端还能用自然语言让 host 改：插件注册了 agent 工具 `remote_fast_mode`，在对话里说「打开 ds-harness-remote-fast 插件的极速模式开关」即可。
 
 开启后：
 

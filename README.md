@@ -24,7 +24,7 @@
 上游 [liguobao/ds-harness-remote](https://github.com/liguobao/ds-harness-remote) 的**速度优化分支**，只加一件事：
 **尽量少地往远端塞数据**，让连接更快、更稳，尤其是大会话（几百条记录 + 插件投影）在弱网/中继下的首屏。
 
-除「极速模式」外，本分支与 `upstream/main` 完全一致，跟随上游 rebase。
+除「极速模式」和一处后端探测的性能修正（见下）外，本分支与 `upstream/main` 完全一致，跟随上游 rebase。
 
 ## 为什么单独 fork
 
@@ -39,6 +39,12 @@
 - **DSH Go** 是第三方 App（它内置本插件，但不会为这个功能单独加 UI）
 
 在它们支持新参数之前，Host 端兜底是唯一能让大会话不断连的手段。所以 PR 先关掉，fork 自己维护；等上游真的落地 per-connection 参数（`projection / maxRecords / maxBytes`），这个开关会退化成「默认值」，那时再回归官方包。
+
+## 极速模式开关在哪
+
+Remote 弹窗里，紧挨着「允许控制本机」：**极速模式 [?] [开关]**，默认打开，切换立即生效并持久化到 `cordis.patch.yml`。
+
+远端也可以用自然语言让 host 改：插件注册了 agent 工具 **`remote_fast_mode`**，在对话里说「打开 ds-harness-remote-fast 插件的极速模式开关」即可（弹窗里的 `?` 提示也写了这一句）。
 
 ## 极速模式实测（2026-11-06）
 
@@ -55,6 +61,8 @@
 
 **它不省什么**：对话过程中的增量帧、心跳/信令、Host 侧的 CPU 与磁盘（快照照旧生成，只在出站前裁剪）。
 
+**顺带的性能修正**：Host 每次读设置都会同步 spawn `which` 去探测 ACP 后端（实测 6 次约 21 ms，最坏会卡到 5 s 超时）。现在探测改成了异步 `execFile`，并加 30 秒 TTL 缓存，不再阻塞事件循环。
+
 ## 跟随上游
 
 ```bash
@@ -67,7 +75,7 @@ git rebase upstream/main      # dist 冲突时：重新 build 后再 git add pac
 
 ## 许可与致谢
 
-代码来自 [liguobao/ds-harness-remote](https://github.com/liguobao/ds-harness-remote)，遵循其原许可。本分支只改「极速模式」相关逻辑，问题请先看上游 issue；确实与极速模式有关再来这边提。
+代码来自 [liguobao/ds-harness-remote](https://github.com/liguobao/ds-harness-remote)，遵循其原许可。本分支只改「极速模式」相关逻辑和一处后端探测的性能修正，问题请先看上游 issue；确实与本分支有关再来这边提。
 
 ## npm
 
