@@ -547,9 +547,27 @@ export class PluginControlRuntime {
   }
 }
 
+/**
+ * Probing a backend spawns `which`, which blocks the event loop; every settings
+ * read used to pay for it (2x per save on a two-backend profile). The answer only
+ * changes when the user installs a binary, so a short cache is enough.
+ */
+const COMMAND_AVAILABILITY_TTL_MS = 30_000
+const commandAvailability = new Map<string, { value: boolean, at: number }>()
+
 function backendCommandAvailable(backend: string, command: string): boolean {
   if (!command || typeof command !== 'string' || command.trim().length === 0) return false
   const trimmed = command.trim()
+  const cacheKey = `${backend}\u0000${trimmed}`
+  const now = Date.now()
+  const cached = commandAvailability.get(cacheKey)
+  if (cached !== undefined && now - cached.at < COMMAND_AVAILABILITY_TTL_MS) return cached.value
+  const value = probeBackendCommand(backend, trimmed)
+  commandAvailability.set(cacheKey, { value, at: now })
+  return value
+}
+
+function probeBackendCommand(backend: string, trimmed: string): boolean {
   if (defaultCheckExecutable(trimmed)) return true
   const candidates = backend === 'codex' ? codexBinaryCandidates(trimmed)
     : backend === 'cursor' || backend === 'antigravity' || backend === 'opencode' ? cursorBinaryCandidates(trimmed) : [trimmed]
