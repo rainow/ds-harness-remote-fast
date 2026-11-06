@@ -2278,7 +2278,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net2 = __require("net");
     var tls3 = __require("tls");
-    var { randomBytes: randomBytes13, createHash: createHash8 } = __require("crypto");
+    var { randomBytes: randomBytes13, createHash: createHash7 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2946,7 +2946,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash8("sha1").update(key + GUID).digest("base64");
+        const digest = createHash7("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3315,7 +3315,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter3 = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash: createHash8 } = __require("crypto");
+    var { createHash: createHash7 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -3622,7 +3622,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash8("sha1").update(key + GUID).digest("base64");
+        const digest = createHash7("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -4207,7 +4207,7 @@ var require_ip_codec = __commonJS({
         value: true
       });
       exports2.decode = decode21;
-      exports2.encode = encode23;
+      exports2.encode = encode21;
       exports2.familyOf = familyOf;
       exports2.name = void 0;
       exports2.sizeOf = sizeOf2;
@@ -4360,7 +4360,7 @@ var require_ip_codec = __commonJS({
       function familyOf(string9) {
         return sizeOf2(string9) === v4.size ? 1 : 2;
       }
-      function encode23(ip, buff, offset) {
+      function encode21(ip, buff, offset) {
         offset = ~~offset;
         const size2 = sizeOf2(ip);
         if (typeof buff === "function") {
@@ -5453,7 +5453,7 @@ var require_dns_packet = __commonJS({
           return 32;
       }
     };
-    rsshfp.encode = function encode23(record11, buf, offset) {
+    rsshfp.encode = function encode21(record11, buf, offset) {
       if (!buf) buf = Buffer9.alloc(rsshfp.encodingLength(record11));
       if (!offset) offset = 0;
       const oldOffset = offset;
@@ -5827,12 +5827,12 @@ var require_thunky = __commonJS({
     process.nextTick(upgrade, 42);
     module.exports = thunky;
     function thunky(fn) {
-      var state2 = run2;
+      var state2 = run;
       return thunk;
       function thunk(callback) {
         state2(callback || noop);
       }
-      function run2(callback) {
+      function run(callback) {
         var stack = [callback];
         state2 = wait;
         fn(done);
@@ -5841,7 +5841,7 @@ var require_thunky = __commonJS({
         }
         function done(err5) {
           var args = arguments;
-          state2 = isError(err5) ? run2 : finished;
+          state2 = isError(err5) ? run : finished;
           while (stack.length) finished(stack.shift());
           function finished(callback2) {
             nextTick(apply2, callback2, args);
@@ -17005,10 +17005,10 @@ var init_lib = __esm({
         return buf;
       }
       sendCertificateVerify() {
-        const cache2 = Buffer.concat(
+        const cache = Buffer.concat(
           this.dtls.sortedHandshakeCache.map((v) => v.serialize())
         );
-        const signed = this.cipher.signatureData(cache2, "sha256");
+        const signed = this.cipher.signatureData(cache, "sha256");
         const signatureScheme = (() => {
           switch (this.cipher.signatureHashAlgorithm?.signature) {
             case SignatureAlgorithm.ecdsa_3:
@@ -17039,10 +17039,10 @@ var init_lib = __esm({
         return buf;
       }
       sendFinished() {
-        const cache2 = Buffer.concat(
+        const cache = Buffer.concat(
           this.dtls.sortedHandshakeCache.map((v) => v.serialize())
         );
-        const localVerifyData = this.cipher.verifyData(cache2);
+        const localVerifyData = this.cipher.verifyData(cache);
         const finish = new Finished(localVerifyData);
         this.dtls.epoch = 1;
         const [packet] = this.createPacket([finish]);
@@ -18102,10 +18102,10 @@ var init_lib = __esm({
         return buf;
       }
       sendFinished() {
-        const cache2 = Buffer.concat(
+        const cache = Buffer.concat(
           this.dtls.sortedHandshakeCache.map((v) => v.serialize())
         );
-        const localVerifyData = this.cipher.verifyData(cache2);
+        const localVerifyData = this.cipher.verifyData(cache);
         const finish = new Finished(localVerifyData);
         this.dtls.epoch = 1;
         const [packet] = this.createPacket([finish]);
@@ -27938,15 +27938,15 @@ var init_lib = __esm({
        */
       registerRtpReceiverBySsrc(transceiver, params, { deferConflicts = false } = {}) {
         log33("registerRtpReceiverBySsrc", params);
-        params.encodings.filter((e) => e.ssrc != void 0).forEach((encode212, i) => {
+        params.encodings.filter((e) => e.ssrc != void 0).forEach((encode21, i) => {
           this.registerRtpReceiver(
             transceiver.receiver,
-            encode212.ssrc,
+            encode21.ssrc,
             deferConflicts
           );
           transceiver.addTrack(
             new MediaStreamTrack({
-              ssrc: encode212.ssrc,
+              ssrc: encode21.ssrc,
               kind: transceiver.kind,
               id: transceiver.sender.trackId,
               remote: true,
@@ -27957,10 +27957,10 @@ var init_lib = __esm({
               )
             })
           );
-          if (encode212.rtx) {
+          if (encode21.rtx) {
             this.registerRtpReceiver(
               transceiver.receiver,
-              encode212.rtx.ssrc,
+              encode21.rtx.ssrc,
               deferConflicts
             );
           }
@@ -41001,7 +41001,7 @@ var require_reed_solomon_encoder = __commonJS({
       this.degree = degree;
       this.genPoly = Polynomial.generateECPolynomial(this.degree);
     };
-    ReedSolomonEncoder.prototype.encode = function encode23(data2) {
+    ReedSolomonEncoder.prototype.encode = function encode21(data2) {
       if (!this.genPoly) {
         throw new Error("Encoder not initialized");
       }
@@ -64203,21 +64203,21 @@ function visit(schema, fnOrHandlers) {
     const h = fnOrHandlers[node2._zod.def.type];
     return h ? h(node2, rewritten) : node2;
   };
-  const cache2 = /* @__PURE__ */ new Map();
-  function run2(s) {
-    const cached2 = cache2.get(s);
+  const cache = /* @__PURE__ */ new Map();
+  function run(s) {
+    const cached2 = cache.get(s);
     if (cached2 === RESOLVING) {
       return new $ZodLazy({
         type: "lazy",
-        getter: () => cache2.get(s)
+        getter: () => cache.get(s)
       });
     }
     if (cached2 !== void 0)
       return cached2;
-    cache2.set(s, RESOLVING);
+    cache.set(s, RESOLVING);
     const inner = mapInner(s);
     const mapped = fn(inner, inner !== s);
-    cache2.set(s, mapped);
+    cache.set(s, mapped);
     return mapped;
   }
   function mapInner(s) {
@@ -64230,21 +64230,21 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newShape = {};
         for (const k of keys) {
-          const mapped = run2(oldShape[k]);
+          const mapped = run(oldShape[k]);
           if (mapped !== oldShape[k])
             changed = true;
           newShape[k] = mapped;
         }
         let newCatchall = def.catchall;
         if (def.catchall) {
-          newCatchall = run2(def.catchall);
+          newCatchall = run(def.catchall);
           if (newCatchall !== def.catchall)
             changed = true;
         }
         return changed ? clone(s, { ...def, shape: newShape, catchall: newCatchall }) : s;
       }
       case "array": {
-        const mapped = run2(def.element);
+        const mapped = run(def.element);
         return mapped === def.element ? s : clone(s, { ...def, element: mapped });
       }
       case "tuple": {
@@ -64252,14 +64252,14 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newItems = [];
         for (const item of oldItems) {
-          const mapped = run2(item);
+          const mapped = run(item);
           if (mapped !== item)
             changed = true;
           newItems.push(mapped);
         }
         let newRest = def.rest;
         if (def.rest) {
-          newRest = run2(def.rest);
+          newRest = run(def.rest);
           if (newRest !== def.rest)
             changed = true;
         }
@@ -64267,12 +64267,12 @@ function visit(schema, fnOrHandlers) {
       }
       case "record":
       case "map": {
-        const newKey = run2(def.keyType);
-        const newVal = run2(def.valueType);
+        const newKey = run(def.keyType);
+        const newVal = run(def.valueType);
         return newKey === def.keyType && newVal === def.valueType ? s : clone(s, { ...def, keyType: newKey, valueType: newVal });
       }
       case "set": {
-        const newVal = run2(def.valueType);
+        const newVal = run(def.valueType);
         return newVal === def.valueType ? s : clone(s, { ...def, valueType: newVal });
       }
       case "union": {
@@ -64280,7 +64280,7 @@ function visit(schema, fnOrHandlers) {
         let changed = false;
         const newOptions = [];
         for (const opt of oldOptions) {
-          const mapped = run2(opt);
+          const mapped = run(opt);
           if (mapped !== opt)
             changed = true;
           newOptions.push(mapped);
@@ -64288,8 +64288,8 @@ function visit(schema, fnOrHandlers) {
         return changed ? clone(s, { ...def, options: newOptions }) : s;
       }
       case "intersection": {
-        const newLeft = run2(def.left);
-        const newRight = run2(def.right);
+        const newLeft = run(def.left);
+        const newRight = run(def.right);
         return newLeft === def.left && newRight === def.right ? s : clone(s, { ...def, left: newLeft, right: newRight });
       }
       case "optional":
@@ -64301,23 +64301,23 @@ function visit(schema, fnOrHandlers) {
       case "nonoptional":
       case "promise":
       case "success": {
-        const newInner = run2(def.innerType);
+        const newInner = run(def.innerType);
         return newInner === def.innerType ? s : clone(s, { ...def, innerType: newInner });
       }
       case "pipe": {
-        const newIn = run2(def.in);
-        const newOut = run2(def.out);
+        const newIn = run(def.in);
+        const newOut = run(def.out);
         return newIn === def.in && newOut === def.out ? s : clone(s, { ...def, in: newIn, out: newOut });
       }
       case "function": {
-        const newInput = run2(def.input);
-        const newOutput = run2(def.output);
+        const newInput = run(def.input);
+        const newOutput = run(def.output);
         return newInput === def.input && newOutput === def.output ? s : clone(s, { ...def, input: newInput, output: newOutput });
       }
       case "lazy": {
         const original = def.getter;
         const { _cachedInner, ...rest } = def;
-        return clone(s, { ...rest, getter: () => run2(original()) });
+        return clone(s, { ...rest, getter: () => run(original()) });
       }
       // A leaf by choice: `parts` are regex fragments, not data positions.
       case "template_literal":
@@ -64348,7 +64348,7 @@ function visit(schema, fnOrHandlers) {
       }
     }
   }
-  return run2(schema);
+  return run(schema);
 }
 
 // node_modules/zod/v4/classic/deep-partial.js
@@ -78193,12 +78193,12 @@ var LoopbackPreview = class {
     this.lifetime.abort();
     for (const socket of this.sockets) socket.destroy();
     for (const pending of this.servers.values()) {
-      const running2 = await pending.catch(() => void 0);
-      if (running2 === void 0) continue;
-      for (const client of running2.ws.clients) client.terminate();
-      running2.ws.close();
-      running2.server.closeAllConnections();
-      await new Promise((resolve9) => running2.server.close(() => resolve9()));
+      const running = await pending.catch(() => void 0);
+      if (running === void 0) continue;
+      for (const client of running.ws.clients) client.terminate();
+      running.ws.close();
+      running.server.closeAllConnections();
+      await new Promise((resolve9) => running.server.close(() => resolve9()));
     }
     this.servers.clear();
   }
@@ -80356,8 +80356,8 @@ var CodexLiveProjection = class {
     }
     if (frame.method === "thread/status/changed") {
       const status2 = record5(params.status);
-      const running2 = status2.type === "active";
-      this.context.emitRemoteEvent("api-session/status", [follow.sessionId, running2]);
+      const running = status2.type === "active";
+      this.context.emitRemoteEvent("api-session/status", [follow.sessionId, running]);
       return;
     }
     if (frame.method === "model/rerouted") {
@@ -83768,7 +83768,6 @@ var entryConfigSchema = Schema.object({
   rotatePinnedPeerKey: Schema.boolean(),
   logLevel: Schema.union(["debug", "info", "warn", "error"]),
   liteMode: Schema.boolean().default(true),
-  thumbnailMode: Schema.boolean().default(false),
   reconnect: Schema.union([
     Schema.boolean(),
     Schema.object({
@@ -83814,7 +83813,6 @@ var configSchema = external_exports.object({
   rotatePinnedPeerKey: external_exports.boolean().optional(),
   logLevel: external_exports.enum(["debug", "info", "warn", "error"]).optional(),
   liteMode: external_exports.boolean().optional(),
-  thumbnailMode: external_exports.boolean().optional(),
   reconnect: reconnectSchema.optional(),
   codex: external_exports.object({
     enabled: external_exports.boolean().optional(),
@@ -83856,7 +83854,6 @@ function resolveConfig(input4 = {}, env = process.env) {
     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
     logLevel: parsed.logLevel ?? "info",
     liteMode: parsed.liteMode !== false,
-    thumbnailMode: parsed.thumbnailMode === true,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,
@@ -86374,9 +86371,9 @@ var ClientModeRuntime = class {
     const failure5 = results.find((result) => result.status === "rejected");
     if (failure5?.status === "rejected") throw failure5.reason;
   }
-  async setHostAuthorization(enabled3) {
+  async setHostAuthorization(enabled2) {
     if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-    if (!enabled3) {
+    if (!enabled2) {
       await this.host.clearHostAuthorization();
       return this.status();
     }
@@ -87002,18 +86999,6 @@ function applyLiteMode(frame) {
   }
   if (layer.type === "projection" && sizeOf(layer.value) > LITE_PROJECTION_MAX_BYTES) return void 0;
   return frame;
-}
-
-// src/thumbnail-mode.ts
-var THUMBNAIL_MIN_BYTES = 256 * 1024;
-var THUMBNAIL_MAX_EDGE = 1024;
-var THUMBNAIL_QUALITY = 75;
-var enabled2 = false;
-function isThumbnailModeEnabled() {
-  return enabled2;
-}
-function setThumbnailModeEnabled(next) {
-  enabled2 = next === true;
 }
 
 // src/identity-store.ts
@@ -87894,9 +87879,9 @@ async function previewCall(peer, input4, invoke) {
     throw new RpcError("INVALID_MESSAGE", "History preview is read-only.");
   const result = object3(await invoke({ method: call.method, params: call.params }));
   if (!Array.isArray(result.records) || typeof params.threadId !== "string") return result;
-  let cache2 = details.get(peer);
-  if (!cache2) details.set(peer, cache2 = /* @__PURE__ */ new Map());
-  for (const [id6, value] of cache2) if (value.until < Date.now()) cache2.delete(id6);
+  let cache = details.get(peer);
+  if (!cache) details.set(peer, cache = /* @__PURE__ */ new Map());
+  for (const [id6, value] of cache) if (value.until < Date.now()) cache.delete(id6);
   const pending = /* @__PURE__ */ new Map();
   let pendingBytes = 0;
   const records = result.records.map((raw) => {
@@ -87927,13 +87912,13 @@ async function previewCall(peer, input4, invoke) {
   });
   const preview = { ...result, records };
   if (size(preview) > 2 * 1024 * 1024) throw new RpcError("RESPONSE_TOO_LARGE", "History requires chunked transfer.");
-  let cachedBytes = [...cache2.values()].reduce((n, value) => n + value.bytes, 0);
-  while (cache2.size + pending.size > 64 || cachedBytes + pendingBytes > MAX_CACHE) {
-    const oldest = cache2.keys().next().value;
-    cachedBytes -= cache2.get(oldest).bytes;
-    cache2.delete(oldest);
+  let cachedBytes = [...cache.values()].reduce((n, value) => n + value.bytes, 0);
+  while (cache.size + pending.size > 64 || cachedBytes + pendingBytes > MAX_CACHE) {
+    const oldest = cache.keys().next().value;
+    cachedBytes -= cache.get(oldest).bytes;
+    cache.delete(oldest);
   }
-  for (const [id6, detail] of pending) cache2.set(id6, detail);
+  for (const [id6, detail] of pending) cache.set(id6, detail);
   return preview;
 }
 
@@ -88300,9 +88285,9 @@ var CodexRemoteDomain = class {
     if (!this.peers.has(connectionId)) throw new RpcError("CODEX_THREAD_UNAVAILABLE", "The CodeX thread is not available on this connection.");
     try {
       const assertCurrent = this.captureCallScope(connectionId);
-      const known2 = await this.readKnownThread(threadId);
+      const known = await this.readKnownThread(threadId);
       assertCurrent();
-      return known2.cwd;
+      return known.cwd;
     } catch (error62) {
       if (error62 instanceof RpcError && error62.code === "CODEX_THREAD_NOT_ALLOWED") {
         throw new RpcError("CODEX_THREAD_UNAVAILABLE", "The CodeX thread is not available.");
@@ -90096,8 +90081,8 @@ var IsolatedAcpClient = class {
     const p = params;
     if (method === "session/list") return this.catalog.call(method, params, timeoutMs);
     if (method === "session/new" || method === "session/load") {
-      const known2 = typeof p.sessionId === "string" ? this.clients.get(p.sessionId) : void 0;
-      if (known2) return { sessionId: p.sessionId };
+      const known = typeof p.sessionId === "string" ? this.clients.get(p.sessionId) : void 0;
+      if (known) return { sessionId: p.sessionId };
       const client2 = await this.create();
       let boundId = typeof p.sessionId === "string" ? p.sessionId : void 0;
       const queued = [];
@@ -90706,10 +90691,10 @@ var RemoteTerminalState = class {
   }
 };
 var RemoteTerminalController = class {
-  constructor(shared, spawn7, enabled3, scopeError) {
+  constructor(shared, spawn7, enabled2, scopeError) {
     this.shared = shared;
     this.spawn = spawn7;
-    this.enabled = enabled3;
+    this.enabled = enabled2;
     this.scopeError = scopeError;
   }
   subscriptions = /* @__PURE__ */ new Set();
@@ -91144,8 +91129,8 @@ var TERMINAL_CALLS = /* @__PURE__ */ new Set([
 var TERMINAL_STREAMS = /* @__PURE__ */ new Set(["terminal/follow", "terminal/retain"]);
 var id4 = external_exports.string().regex(/^[A-Za-z0-9_:-]{1,256}$/);
 var TerminalPolicy = class _TerminalPolicy {
-  constructor(enabled3, deviceId, owners) {
-    this.enabled = enabled3;
+  constructor(enabled2, deviceId, owners) {
+    this.enabled = enabled2;
     this.deviceId = deviceId;
     this.owners = owners;
     this.claims = _TerminalPolicy.claims.get(owners) ?? /* @__PURE__ */ new Map();
@@ -93217,9 +93202,9 @@ async function querySqliteJson(dbPath, sql, params = []) {
   } catch {
   }
   try {
-    const { execFile: execFile6 } = await import("node:child_process");
-    const { promisify: promisify7 } = await import("node:util");
-    const execFileAsync4 = promisify7(execFile6);
+    const { execFile: execFile5 } = await import("node:child_process");
+    const { promisify: promisify6 } = await import("node:util");
+    const execFileAsync4 = promisify6(execFile5);
     let formattedSql = sql;
     for (const p of params) {
       const val = typeof p === "number" ? String(p) : `'${String(p).replace(/'/g, "''")}'`;
@@ -95429,7 +95414,6 @@ var PluginControlRuntime = class {
       if (endpoint === "settings.development.set") return ok3(await this.setDevelopment(payload));
       if (endpoint === "settings.appearance.set") return ok3(await this.setAppearance(payload));
       if (endpoint === "settings.lite.set") return ok3(await this.setLite(payload));
-      if (endpoint === "settings.thumbnail.set") return ok3(await this.setThumbnail(payload));
       if (endpoint === "settings.get") return ok3(await this.settingsView());
       if (endpoint === "settings.configure") return ok3(await this.configure(payload));
       if (endpoint === "settings.server.set") return ok3(await this.setServer(payload));
@@ -95566,26 +95550,13 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const enabled3 = record9(payload).enabled;
-    if (typeof enabled3 !== "boolean") {
+    const enabled2 = record9(payload).enabled;
+    if (typeof enabled2 !== "boolean") {
       throw new ClientModeError("INVALID_MESSAGE", "The lite mode switch must be a boolean.");
     }
     const current = editableConfig(resolveConfig(this.settings.get()));
-    await this.settings.replace({ ...current, liteMode: enabled3 });
-    setLiteModeEnabled(enabled3);
-    return { ...await this.settingsView(), applies: "live" };
-  }
-  async setThumbnail(payload) {
-    if (this.settings === void 0) {
-      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
-    }
-    const enabled3 = record9(payload).enabled;
-    if (typeof enabled3 !== "boolean") {
-      throw new ClientModeError("INVALID_MESSAGE", "The thumbnail switch must be a boolean.");
-    }
-    const current = editableConfig(resolveConfig(this.settings.get()));
-    await this.settings.replace({ ...current, thumbnailMode: enabled3 });
-    setThumbnailModeEnabled(enabled3);
+    await this.settings.replace({ ...current, liteMode: enabled2 });
+    setLiteModeEnabled(enabled2);
     return { ...await this.settingsView(), applies: "live" };
   }
   async setRole(payload) {
@@ -95635,27 +95606,27 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const enabled3 = record9(payload).enabled;
-    if (typeof enabled3 !== "boolean") {
+    const enabled2 = record9(payload).enabled;
+    if (typeof enabled2 !== "boolean") {
       throw new ClientModeError("INVALID_MESSAGE", "Codex Remote enabled must be a boolean.");
     }
-    return this.setAcp({ backend: "codex", enabled: enabled3 });
+    return this.setAcp({ backend: "codex", enabled: enabled2 });
   }
   async setCursor(payload) {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const enabled3 = record9(payload).enabled;
-    if (typeof enabled3 !== "boolean") {
+    const enabled2 = record9(payload).enabled;
+    if (typeof enabled2 !== "boolean") {
       throw new ClientModeError("INVALID_MESSAGE", "Cursor Remote enabled must be a boolean.");
     }
     const current = editableConfig(resolveConfig(this.settings.get()));
     const next = resolveConfig({
       ...current,
-      cursor: { ...current.cursor, enabled: enabled3 },
+      cursor: { ...current.cursor, enabled: enabled2 },
       acp: {
-        enabled: enabled3 || current.acp?.enabled === true,
-        backends: current.acp?.backends?.map((item) => item.id === "cursor" ? { ...item, enabled: enabled3 } : item)
+        enabled: enabled2 || current.acp?.enabled === true,
+        backends: current.acp?.backends?.map((item) => item.id === "cursor" ? { ...item, enabled: enabled2 } : item)
       }
     });
     await this.settings.replace(editableConfig(next));
@@ -95666,16 +95637,16 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     const value = record9(payload);
     const backend = value.backend;
-    const enabled3 = value.enabled;
-    if (typeof backend !== "string" || typeof enabled3 !== "boolean") throw new ClientModeError("INVALID_MESSAGE", "ACP backend and enabled are required.");
+    const enabled2 = value.enabled;
+    if (typeof backend !== "string" || typeof enabled2 !== "boolean") throw new ClientModeError("INVALID_MESSAGE", "ACP backend and enabled are required.");
     const current = resolveConfig(this.settings.get());
     if (!current.acp?.backends.some((item) => item.id === backend)) throw new ClientModeError("INVALID_MESSAGE", "Unknown ACP backend.");
-    const backends = current.acp.backends.map((item) => item.id === backend ? { ...item, enabled: enabled3 } : item);
+    const backends = current.acp.backends.map((item) => item.id === backend ? { ...item, enabled: enabled2 } : item);
     await this.settings.replace({
       ...editableConfig(current),
-      ...backend === "cursor" ? { cursor: { ...current.cursor, enabled: enabled3 } } : {},
-      ...backend === "codex" ? { codex: { ...current.codex, enabled: enabled3 } } : {},
-      acp: { enabled: enabled3 || current.acp.enabled, backends }
+      ...backend === "cursor" ? { cursor: { ...current.cursor, enabled: enabled2 } } : {},
+      ...backend === "codex" ? { codex: { ...current.codex, enabled: enabled2 } } : {},
+      acp: { enabled: enabled2 || current.acp.enabled, backends }
     });
     await this.host?.setAgentBackends?.(resolveConfig(this.settings.get()));
     return { ...await this.settingsView(), applies: "live" };
@@ -95854,12 +95825,12 @@ var commandAvailability = /* @__PURE__ */ new Map();
 function backendCommandAvailable(backend, command) {
   if (!command || typeof command !== "string" || command.trim().length === 0) return Promise.resolve(false);
   const trimmed = command.trim();
-  const cacheKey2 = `${backend}\0${trimmed}`;
+  const cacheKey = `${backend}\0${trimmed}`;
   const now = Date.now();
-  const cached2 = commandAvailability.get(cacheKey2);
+  const cached2 = commandAvailability.get(cacheKey);
   if (cached2 !== void 0 && now - cached2.at < COMMAND_AVAILABILITY_TTL_MS) return cached2.value;
   const value = probeBackendCommand(backend, trimmed);
-  commandAvailability.set(cacheKey2, { value, at: now });
+  commandAvailability.set(cacheKey, { value, at: now });
   return value;
 }
 async function probeBackendCommand(backend, trimmed) {
@@ -95892,7 +95863,6 @@ function editableConfig(config2) {
     forceRelay: config2.forceRelay,
     logLevel: config2.logLevel,
     liteMode: config2.liteMode,
-    thumbnailMode: config2.thumbnailMode,
     reconnect: config2.reconnect.enabled ? {
       initialDelayMs: config2.reconnect.initialDelayMs,
       maxDelayMs: config2.reconnect.maxDelayMs,
@@ -97744,9 +97714,9 @@ var ServerNoiseChannel = class {
   /** Noise + SecureMessageCodec counters are not re-entrant; serialize sends. */
   sendTail = Promise.resolve();
   async send(message) {
-    const run2 = this.sendTail.then(() => this.sendNow(message));
-    this.sendTail = run2.catch(() => void 0);
-    return run2;
+    const run = this.sendTail.then(() => this.sendNow(message));
+    this.sendTail = run.catch(() => void 0);
+    return run;
   }
   async sendNow(message) {
     if (this.tunnel.lease && !this.tunnel.lease.valid()) throw new Error("Control lease expired");
@@ -97923,269 +97893,15 @@ function closeCode(code) {
   return "CONNECTION_FAILED";
 }
 
-// src/image-thumbnail.ts
-import { execFile as execFile5 } from "node:child_process";
-import { createHash as createHash7 } from "node:crypto";
-import { mkdtemp as mkdtemp2, readFile as readFile4, rm as rm4, writeFile as writeFile3 } from "node:fs/promises";
-import { tmpdir as tmpdir2 } from "node:os";
-import { join as join15 } from "node:path";
-import { promisify as promisify6 } from "node:util";
-var run = promisify6(execFile5);
-var MAX_CONCURRENT = 2;
-var CACHE_LIMIT = 32;
-var MIN_SAVING = 0.1;
-var cache = /* @__PURE__ */ new Map();
-var running = 0;
-var waiting = [];
-var EXTENSIONS2 = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-  "image/heic": "heic",
-  "image/heif": "heif",
-  "image/avif": "avif",
-  "image/bmp": "bmp",
-  "image/tiff": "tiff"
-};
-function isImageType(mediaType) {
-  return mediaType.startsWith("image/");
-}
-function shouldThumbnail(mediaType, bytes) {
-  return isImageType(mediaType) && bytes > THUMBNAIL_MIN_BYTES;
-}
-function cacheKey(identity3, buffer3) {
-  return identity3 !== void 0 && identity3.length > 0 ? `id:${identity3}` : `sha:${createHash7("sha256").update(buffer3).digest("hex")}`;
-}
-function remember(key, value) {
-  cache.delete(key);
-  cache.set(key, value);
-  while (cache.size > CACHE_LIMIT) {
-    const oldest = cache.keys().next().value;
-    if (oldest === void 0) break;
-    cache.delete(oldest);
-  }
-}
-async function acquire() {
-  if (running < MAX_CONCURRENT) {
-    running += 1;
-    return;
-  }
-  await new Promise((resolve9) => waiting.push(resolve9));
-  running += 1;
-}
-function release() {
-  running -= 1;
-  const next = waiting.shift();
-  if (next !== void 0) next();
-}
-async function loadOptional(name2) {
-  try {
-    return await import(name2);
-  } catch {
-    return void 0;
-  }
-}
-async function encodeWithSharp(buffer3) {
-  try {
-    const module = await loadOptional("sharp");
-    const sharp = module.default;
-    if (typeof sharp !== "function") return void 0;
-    const output2 = await sharp(buffer3).resize({ width: THUMBNAIL_MAX_EDGE, height: THUMBNAIL_MAX_EDGE, fit: "inside", withoutEnlargement: true }).jpeg({ quality: THUMBNAIL_QUALITY }).toBuffer();
-    return { data: output2.toString("base64"), mediaType: "image/jpeg" };
-  } catch {
-    return void 0;
-  }
-}
-async function encodeWithCli(buffer3, mediaType, command, args) {
-  const directory = await mkdtemp2(join15(tmpdir2(), "dsh-remote-thumb-"));
-  try {
-    const input4 = join15(directory, `in.${EXTENSIONS2[mediaType] ?? "img"}`);
-    const output2 = join15(directory, "out.jpg");
-    await writeFile3(input4, buffer3);
-    await run(command, args(input4, output2), { timeout: 15e3 });
-    const output22 = await readFile4(output2);
-    return output22.length === 0 ? void 0 : { data: output22.toString("base64"), mediaType: "image/jpeg" };
-  } catch {
-    return void 0;
-  } finally {
-    await rm4(directory, { recursive: true, force: true }).catch(() => void 0);
-  }
-}
-async function encodeWithSips(buffer3, mediaType) {
-  return encodeWithCli(buffer3, mediaType, "sips", (input4, output2) => [
-    "-Z",
-    String(THUMBNAIL_MAX_EDGE),
-    "-s",
-    "format",
-    "jpeg",
-    "-s",
-    "formatOptions",
-    String(THUMBNAIL_QUALITY),
-    input4,
-    "--out",
-    output2
-  ]);
-}
-async function encodeWithImageMagick(buffer3, mediaType, command) {
-  return encodeWithCli(buffer3, mediaType, command, (input4, output2) => [
-    input4,
-    "-resize",
-    `${THUMBNAIL_MAX_EDGE}x${THUMBNAIL_MAX_EDGE}>`,
-    "-quality",
-    String(THUMBNAIL_QUALITY),
-    output2
-  ]);
-}
-async function encodeWithPngjs(buffer3) {
-  try {
-    const module = await loadOptional("pngjs");
-    if (module === void 0) return void 0;
-    const PNG = module.PNG;
-    const source = PNG.sync.read(buffer3);
-    const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(source.width, source.height));
-    if (scale >= 1) return void 0;
-    const width = Math.max(1, Math.round(source.width * scale));
-    const height = Math.max(1, Math.round(source.height * scale));
-    const output2 = Buffer.alloc(width * height * 4);
-    for (let y = 0; y < height; y += 1) {
-      const sourceY = Math.min(source.height - 1, Math.floor(y / scale));
-      for (let x = 0; x < width; x += 1) {
-        const sourceX = Math.min(source.width - 1, Math.floor(x / scale));
-        const from2 = (sourceY * source.width + sourceX) * 4;
-        const to = (y * width + x) * 4;
-        output2[to] = source.data[from2];
-        output2[to + 1] = source.data[from2 + 1];
-        output2[to + 2] = source.data[from2 + 2];
-        output2[to + 3] = source.data[from2 + 3];
-      }
-    }
-    return { data: PNG.sync.write({ width, height, data: output2 }).toString("base64"), mediaType: "image/png" };
-  } catch {
-    return void 0;
-  }
-}
-async function encode21(buffer3, mediaType) {
-  return await encodeWithSharp(buffer3) ?? (process.platform === "darwin" ? await encodeWithSips(buffer3, mediaType) : void 0) ?? (process.platform === "linux" ? await encodeWithImageMagick(buffer3, mediaType, "convert") : void 0) ?? (process.platform === "linux" ? await encodeWithImageMagick(buffer3, mediaType, "magick") : void 0) ?? (mediaType === "image/png" ? await encodeWithPngjs(buffer3) : void 0);
-}
-var onConverted;
-function setThumbnailMetricsSink(sink) {
-  onConverted = sink;
-}
-async function thumbnailImage(input4) {
-  if (!shouldThumbnail(input4.mediaType, Buffer.byteLength(input4.data, "base64"))) return void 0;
-  const buffer3 = Buffer.from(input4.data, "base64");
-  const key = cacheKey(input4.identity, buffer3);
-  const cached2 = cache.get(key);
-  if (cached2 !== void 0) return cached2;
-  await acquire();
-  try {
-    const once = await encode21(buffer3, input4.mediaType);
-    if (once === void 0) return void 0;
-    if (once.data.length > buffer3.length * (1 - MIN_SAVING)) return void 0;
-    remember(key, once);
-    onConverted?.({
-      identity: input4.identity,
-      mediaType: input4.mediaType,
-      originalBytes: buffer3.length,
-      thumbnailBytes: Buffer.byteLength(once.data, "base64"),
-      outputType: once.mediaType
-    });
-    return once;
-  } finally {
-    release();
-  }
-}
-async function thumbnailAttachmentValue(value) {
-  const attachment = value.attachment;
-  if (attachment === null || typeof attachment !== "object" || Array.isArray(attachment)) return void 0;
-  const reference = attachment;
-  const mediaType = typeof reference.mediaType === "string" ? reference.mediaType : void 0;
-  const data2 = typeof value.data === "string" ? value.data : void 0;
-  if (mediaType === void 0 || data2 === void 0) return void 0;
-  const thumbnail = await thumbnailImage({
-    data: data2,
-    mediaType,
-    identity: typeof reference.attachmentId === "string" ? reference.attachmentId : void 0
-  });
-  return thumbnail === void 0 ? void 0 : { ...value, data: thumbnail.data };
-}
-
-// src/attachment-store.ts
-import { readFile as readFile5, realpath as realpath7 } from "node:fs/promises";
-import { homedir as homedir8 } from "node:os";
-import { basename as basename6, join as join16, sep as sep2 } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
-var ATTACHMENT_ID = /^[a-f0-9]{64}$/;
-var ID_IN_TEXT = /"attachmentId":"sha256:([a-f0-9]{64})"/g;
-var KNOWN_LIMIT = 2048;
-var known = /* @__PURE__ */ new Map();
-function remember2(id6) {
-  if (known.has(id6)) return;
-  known.set(id6, true);
-  while (known.size > KNOWN_LIMIT) {
-    const oldest = known.keys().next().value;
-    if (oldest === void 0) break;
-    known.delete(oldest);
-  }
-}
-function rememberAttachmentRefs(text) {
-  for (const match of text.matchAll(ID_IN_TEXT)) {
-    const id6 = match[1];
-    if (id6 !== void 0) remember2(id6);
-  }
-}
-function isKnownAttachment(id6) {
-  return known.has(id6);
-}
-function attachmentStoreRoot() {
-  const home = process.env.DSH_HOME ?? join16(homedir8(), ".dsh");
-  return join16(home, "attachments", "v1", "objects");
-}
-function normalizePath(value) {
-  let path = value.trim();
-  if (path.length === 0 || path.length > 4096 || /[\u0000-\u001f]/.test(path)) return void 0;
-  try {
-    if (path.startsWith("file://")) path = fileURLToPath3(path);
-    else path = decodeURIComponent(path.split(/[?#]/u, 1)[0] ?? "");
-  } catch {
-    return void 0;
-  }
-  return path;
-}
-function sniffType(bytes) {
-  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
-  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return "image/jpeg";
-  if (bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") return "image/webp";
-  if (bytes.length >= 6 && bytes.toString("ascii", 0, 3) === "GIF") return "image/gif";
-  return "application/octet-stream";
-}
-async function readKnownAttachment(rawPath) {
-  const path = normalizePath(rawPath);
-  if (path === void 0) return void 0;
-  const id6 = basename6(path);
-  if (!ATTACHMENT_ID.test(id6) || !isKnownAttachment(id6)) return void 0;
-  try {
-    const root = await realpath7(attachmentStoreRoot());
-    const resolved = await realpath7(path);
-    if (!resolved.startsWith(root + sep2)) return void 0;
-    const bytes = await readFile5(resolved);
-    if (bytes.length === 0) return void 0;
-    return { data: bytes.toString("base64"), mimeType: sniffType(bytes) };
-  } catch {
-    return void 0;
-  }
-}
-
 // src/harness-remote-bridge.ts
 import { randomUUID as randomUUID17 } from "node:crypto";
-import { lstat as lstat3, realpath as realpath8, stat as stat8 } from "node:fs/promises";
-import { dirname as dirname7, isAbsolute as isAbsolute10, join as join17, parse as parse4, relative as relative5, resolve as resolve8, sep as sep3 } from "node:path";
+import { lstat as lstat3, realpath as realpath7, stat as stat8 } from "node:fs/promises";
+import { dirname as dirname7, isAbsolute as isAbsolute10, join as join15, parse as parse4, relative as relative5, resolve as resolve8, sep as sep2 } from "node:path";
 
 // src/remote-directory-browser.ts
 import { mkdir as mkdir4, readdir as readdir5, stat as stat7 } from "node:fs/promises";
-import { homedir as homedir9, platform as platform2 } from "node:os";
-import { basename as basename7, dirname as dirname6, isAbsolute as isAbsolute9, parse as parse3, resolve as resolve7 } from "node:path";
+import { homedir as homedir8, platform as platform2 } from "node:os";
+import { basename as basename6, dirname as dirname6, isAbsolute as isAbsolute9, parse as parse3, resolve as resolve7 } from "node:path";
 var MAX_ENTRIES = 500;
 async function ensureHostWorkspaceDirectory(path) {
   if (typeof path !== "string" || path.trim() === "" || path.includes("\0") || !isAbsolute9(path) || resolve7(path) === parse3(path).root) {
@@ -98195,7 +97911,7 @@ async function ensureHostWorkspaceDirectory(path) {
 }
 async function listRemoteDirectory(path, signal) {
   signal?.throwIfAborted();
-  const home = resolve7(homedir9());
+  const home = resolve7(homedir8());
   const target3 = path === void 0 || path.trim() === "" ? home : resolve7(path);
   if (!isAbsolute9(target3)) throw new Error("The remote directory path must be absolute.");
   const rows = await readdir5(target3, { withFileTypes: true });
@@ -98223,7 +97939,7 @@ function crumbs(path) {
   const segments = [];
   let current = path;
   while (current !== root) {
-    segments.unshift(basename7(current));
+    segments.unshift(basename6(current));
     current = dirname6(current);
   }
   for (const segment of segments) {
@@ -98438,7 +98154,6 @@ var HarnessRemoteBridge = class {
     this.resolveWorkspaceRoot = resolveWorkspaceRoot;
     this.schedule = schedule;
     this.terminalCarrier = usesDuplexTerminal(harnessVersion) ? new TerminalCarrierCompat(gateway) : void 0;
-    installThumbnailMetrics(this.logger);
   }
   compactHistoryEnabled = false;
   streams = /* @__PURE__ */ new Map();
@@ -98499,28 +98214,9 @@ var HarnessRemoteBridge = class {
         params.endpoint,
         this.compactHistoryEnabled && ["session/page", "session/events", "session/history", "subagent/history"].includes(params.endpoint) ? compactHistory(filteredResult) : filteredResult
       );
-      if (HISTORY_ENDPOINTS.has(params.endpoint)) {
-        try {
-          rememberAttachmentRefs(JSON.stringify(wireResult));
-        } catch {
-        }
-      }
-      const shaped = await applyThumbnailMode(params.endpoint, wireResult);
-      return reservation === void 0 ? shaped : this.terminal.result(params.endpoint, params.payload, shaped, reservation);
+      return reservation === void 0 ? wireResult : this.terminal.result(params.endpoint, params.payload, wireResult, reservation);
     } catch (error62) {
       if (reservation !== void 0) this.terminal.result(params.endpoint, params.payload, { ok: false, error: { code: "FAILED", message: "", details: {} } }, reservation);
-      if (params.endpoint === "workspaceFiles/read") {
-        const failure5 = this.gateway.failure(error62);
-        if (failure5.code === "WORKSPACE_PATH_DENIED") {
-          const args = requestArgs(params.payload);
-          const path = typeof args.path === "string" ? args.path : void 0;
-          const fallback = path === void 0 ? void 0 : await this.attachmentRead(path);
-          if (fallback !== void 0) {
-            this.logger?.info("workspace read served from the attachment store", { bytes: Buffer.byteLength(String(fallback.value?.data ?? ""), "base64") });
-            return fallback;
-          }
-        }
-      }
       if (params.endpoint === "directoryPicker/list") {
         const result = await this.directoryList(params.payload, signal);
         this.logger?.debug("harness remote call ok", {
@@ -98537,28 +98233,6 @@ var HarnessRemoteBridge = class {
       });
       throw error62;
     }
-  }
-  /**
-   * Serve a known attachment to clients that read history images through
-   * `workspaceFiles/read` instead of `session/attachment`. Thumbnails apply here
-   * too, so forced-thumbnail mode covers both transports.
-   */
-  async attachmentRead(path) {
-    const file2 = await readKnownAttachment(path);
-    if (file2 === void 0) return void 0;
-    let data2 = file2.data;
-    let mimeType = file2.mimeType;
-    if (isThumbnailModeEnabled()) {
-      try {
-        const thumbnail = await thumbnailImage({ data: data2, mediaType: mimeType });
-        if (thumbnail !== void 0) {
-          data2 = thumbnail.data;
-          mimeType = thumbnail.mediaType;
-        }
-      } catch {
-      }
-    }
-    return { ok: true, value: { data: data2, mimeType } };
   }
   /** Validate one untrusted create request, then delegate to the Host schedule service. */
   async createSchedule(payload) {
@@ -98826,10 +98500,6 @@ var HarnessRemoteBridge = class {
         }
         const encoded = encodeMessage(createEvent("harness.remote.frame", frame));
         const bytes = encoded.byteLength;
-        const frameType = isJsonRecord(frame.value) && typeof frame.value.type === "string" ? frame.value.type : "";
-        if (frameType === "snapshot" || frameType === "page") {
-          rememberAttachmentRefs(Buffer.from(encoded).toString("utf8"));
-        }
         if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
           const value2 = isJsonRecord(frame.value) ? frame.value : void 0;
           this.logger?.info("outbound frame", {
@@ -98985,7 +98655,7 @@ var HarnessRemoteBridge = class {
       throw new RpcError("WORKSPACE_UNAVAILABLE", "The workspace is unavailable.");
     }
     try {
-      const root = await realpath8(cwd2);
+      const root = await realpath7(cwd2);
       const info = await stat8(root);
       if (!info.isDirectory()) throw new Error();
       return { root, cwd: cwd2 };
@@ -99014,10 +98684,10 @@ var HarnessRemoteBridge = class {
       }
       const base = !isPathOutside(relCwd) ? cwd2 : root;
       const rel = relative5(base, candidate);
-      const parts = rel.split(sep3).filter((p) => p.length > 0 && p !== ".");
+      const parts = rel.split(sep2).filter((p) => p.length > 0 && p !== ".");
       let currentPath = base;
       for (let i = 0; i < parts.length - 1; i++) {
-        currentPath = join17(currentPath, parts[i]);
+        currentPath = join15(currentPath, parts[i]);
         const dirRel = relative5(base, currentPath);
         if (isPathOutside(dirRel)) {
           throw new RpcError("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.");
@@ -99031,7 +98701,7 @@ var HarnessRemoteBridge = class {
       if (targetLstat.isSymbolicLink()) {
         throw new RpcError("WORKSPACE_PATH_DENIED", "The requested workspace path is not a regular file.");
       }
-      const canonical = await realpath8(candidate);
+      const canonical = await realpath7(candidate);
       if (process.platform === "win32") {
         const rootDrive = parse4(root).root.toLowerCase();
         const canonicalDrive = parse4(canonical).root.toLowerCase();
@@ -99052,7 +98722,7 @@ var HarnessRemoteBridge = class {
       }
       const safeRel = canonicalRel === "" ? "." : process.platform === "win32" ? canonicalRel.replaceAll("\\", "/") : canonicalRel;
       const dispatchedCandidate = resolve8(root, safeRel);
-      const dispatchedCanonical = await realpath8(dispatchedCandidate);
+      const dispatchedCanonical = await realpath7(dispatchedCandidate);
       const dispatchedRel = relative5(root, dispatchedCanonical);
       if (isPathOutside(dispatchedRel)) {
         throw new RpcError("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.");
@@ -99151,27 +98821,6 @@ function decodeCanonicalBase643(value) {
   if (bytes.toString("base64") !== value) throw new RpcError("INVALID_MESSAGE", "The Harness Remote transfer chunk is invalid.");
   return bytes;
 }
-async function applyThumbnailMode(endpoint, result) {
-  if (endpoint !== "session/attachment" || !isThumbnailModeEnabled()) return result;
-  if (result.ok !== true || !isJsonRecord(result.value)) return result;
-  try {
-    const shaped = await thumbnailAttachmentValue(result.value);
-    return shaped === void 0 ? result : { ok: true, value: shaped };
-  } catch {
-    return result;
-  }
-}
-function installThumbnailMetrics(logger2) {
-  setThumbnailMetricsSink((metrics) => {
-    logger2?.info("attachment thumbnail", {
-      id: metrics.identity === void 0 ? void 0 : `${metrics.identity.slice(0, 15)}\u2026`,
-      in: metrics.originalBytes,
-      out: metrics.thumbnailBytes,
-      savedPct: Math.round((1 - metrics.thumbnailBytes / metrics.originalBytes) * 100),
-      output: metrics.outputType
-    });
-  });
-}
 function normalizeWorkspaceBinaryResult2(endpoint, result) {
   if (result.ok !== true || endpoint !== "workspaceFiles/readBytes" && endpoint !== "officeToPdf/render") return result;
   if (!isJsonRecord(result.value)) return result;
@@ -99218,7 +98867,6 @@ function needsDirectoryFallback(result) {
   return code.includes("capability") || code === "directory-picker/unavailable" || code === "directory-picker-unavailable" || message.includes("browse capability") || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
 }
 var FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024;
-var HISTORY_ENDPOINTS = /* @__PURE__ */ new Set(["session/page", "session/events", "session/history", "subagent/history", "session/list"]);
 var SESSION_PROJECTION_WHITELIST = /* @__PURE__ */ new Set([
   "permissions",
   "remoteStatusKnown",
@@ -99381,7 +99029,6 @@ var HostPluginRuntime = class {
     this.schedule = schedule;
     this.terminalEnabled = config2.terminal.enabled;
     setLiteModeEnabled(config2.liteMode === true);
-    setThumbnailModeEnabled(config2.thumbnailMode === true);
     this.loopbackPorts = [...config2.loopback.ports];
     this.codex = new CodexRemoteDomain(config2.codex, logger2);
     this.acp = new AcpRemoteGateway(config2.acp ?? { enabled: false, backends: [] }, logger2, void 0, void 0, () => this.terminalEnabled, this.terminalSpawner);
@@ -99462,8 +99109,8 @@ var HostPluginRuntime = class {
   localCodexPublish = async () => void 0;
   localAcpPeer;
   localAcpPublish = async () => void 0;
-  setTerminalEnabled(enabled3) {
-    this.terminalEnabled = enabled3;
+  setTerminalEnabled(enabled2) {
+    this.terminalEnabled = enabled2;
   }
   setLoopbackPorts(ports) {
     this.loopbackPorts = [...ports];
@@ -99916,7 +99563,7 @@ function remoteDiscoveryTools(resolve9) {
     schema,
     render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
   });
-  const run2 = async (signal, query) => {
+  const run = async (signal, query) => {
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(12e4)]);
     lifetime.throwIfAborted();
     const client = resolve9();
@@ -99939,7 +99586,7 @@ function remoteDiscoveryTools(resolve9) {
       output: output2(object4({ hosts: array5(hostSchema) }, ["hosts"])),
       execute: (args, exec2) => {
         emptyInput.parse(args);
-        return run2(exec2.signal, async (client, signal) => ({
+        return run(exec2.signal, async (client, signal) => ({
           hosts: (await client.devices(signal)).filter((host) => host.online).map((host) => ({
             hostId: host.deviceId,
             name: host.name,
@@ -99959,7 +99606,7 @@ function remoteDiscoveryTools(resolve9) {
       }, ["hostId", "workspaces", "unavailable"])),
       execute: (args, exec2) => {
         const { hostId } = workspaceInput.parse(args);
-        return run2(exec2.signal, async (client, signal) => ({ hostId, ...await client.discoverToolWorkspaces(hostId, signal) }));
+        return run(exec2.signal, async (client, signal) => ({ hostId, ...await client.discoverToolWorkspaces(hostId, signal) }));
       }
     }
   ];
@@ -100040,26 +99687,16 @@ function remoteSessionTools(resolve9) {
 }
 function localSwitchTools(switches) {
   const input4 = external_exports.object({ enabled: external_exports.boolean() }).strict();
-  const output2 = {
-    schema: object4({ enabled: { type: "boolean" } }, ["enabled"]),
-    render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
-  };
-  return [
-    {
-      name: "remote_fast_mode",
-      description: "Turn this Host's fast mode (\u6781\u901F\u6A21\u5F0F) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.",
-      parameters: object4({ enabled: { type: "boolean" } }, ["enabled"]),
-      output: output2,
-      execute: async (args) => ({ enabled: await switches.setFastMode(input4.parse(args).enabled) })
+  return [{
+    name: "remote_fast_mode",
+    description: "Turn this Host's fast mode (\u6781\u901F\u6A21\u5F0F) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.",
+    parameters: object4({ enabled: { type: "boolean" } }, ["enabled"]),
+    output: {
+      schema: object4({ enabled: { type: "boolean" } }, ["enabled"]),
+      render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
     },
-    {
-      name: "remote_thumbnail_mode",
-      description: "Turn this Host's forced-thumbnail mode (\u5F3A\u5236\u7F29\u7565\u56FE) on or off. When on, images larger than 256 KB that any remote client reads are re-encoded as a small JPEG (longest edge 1024px, quality 75); the image opened full-screen will be that thumbnail too. Off by default. Applies immediately and persists for this profile. Use it when the user asks to save bandwidth or to stop sending full-size images.",
-      parameters: object4({ enabled: { type: "boolean" } }, ["enabled"]),
-      output: output2,
-      execute: async (args) => ({ enabled: await switches.setThumbnailMode(input4.parse(args).enabled) })
-    }
-  ];
+    execute: async (args) => ({ enabled: await switches.setFastMode(input4.parse(args).enabled) })
+  }];
 }
 function installRemoteDiscoveryTools(ctx, resolve9, switches) {
   ctx.inject(["tools"], (toolContext) => {
@@ -100101,9 +99738,9 @@ function createPump() {
     }
   })();
   return {
-    enqueue(run2) {
+    enqueue(run) {
       return new Promise((resolve9, reject) => {
-        queue.push({ run: run2, resolve: resolve9, reject });
+        queue.push({ run, resolve: resolve9, reject });
         wake();
       });
     }
@@ -100111,10 +99748,10 @@ function createPump() {
 }
 var globalState = globalThis;
 var pump = globalState[PUMP_KEY] ?? (globalState[PUMP_KEY] = createPump());
-function runHmrSafe(run2, hmr) {
+function runHmrSafe(run, hmr) {
   return pump.enqueue(() => {
     const executing = hmr?.executing;
-    return typeof executing?.exit === "function" ? executing.exit(run2) : run2();
+    return typeof executing?.exit === "function" ? executing.exit(run) : run();
   });
 }
 
@@ -100319,7 +99956,7 @@ function decodeBase64(value) {
 // src/cli.ts
 import { stat as stat9 } from "node:fs/promises";
 import { hostname as hostname5 } from "node:os";
-import { join as join18 } from "node:path";
+import { join as join16 } from "node:path";
 var QR_POLL_INTERVAL_MS = 2e3;
 var TERMINAL_QR_MARGIN = 4;
 async function runCli(args = process.argv.slice(2), dependencies = {}) {
@@ -100410,7 +100047,7 @@ async function status(args, runtime) {
     `Server: ${serverUrl}`,
     "Host control: enabled"
   ];
-  if (!await exists3(join18(directory, "device.json"))) {
+  if (!await exists3(join16(directory, "device.json"))) {
     lines.push("Device: not initialized", "Authorization: logged out", "Credential: unavailable");
     write2(runtime.stdout, `${lines.join("\n")}
 
@@ -100455,7 +100092,7 @@ async function logout(args, runtime) {
   const serverUrl = selectedServer();
   const root = new IdentityStore({ env: runtime.env }).directory;
   const directory = serverStorageDirectory(root, serverUrl, "host");
-  if (!await exists3(join18(directory, "device.json"))) {
+  if (!await exists3(join16(directory, "device.json"))) {
     await new ServerCredentialStore(directory).clear();
     write2(runtime.stdout, "This Host is already logged out.\n");
     return 0;
@@ -100826,18 +100463,14 @@ async function activate(ctx, readConfig, entryId) {
     };
   }, "dsh-remote lifecycle");
   if (config2.remoteTools?.enabled) {
-    const persistSwitch = async (key, enabled3) => {
-      const current = editableConfig(resolveConfig(readConfig()));
-      await settingsBinding.replace({ ...current, [key]: enabled3 });
-      if (key === "liteMode") setLiteModeEnabled(enabled3);
-      else setThumbnailModeEnabled(enabled3);
-      return enabled3;
-    };
     installRemoteDiscoveryTools(ctx, () => closed ? void 0 : clientRuntime, settingsBinding === void 0 ? void 0 : {
       fastMode: () => resolveConfig(readConfig()).liteMode === true,
-      setFastMode: (enabled3) => persistSwitch("liteMode", enabled3),
-      thumbnailMode: () => resolveConfig(readConfig()).thumbnailMode === true,
-      setThumbnailMode: (enabled3) => persistSwitch("thumbnailMode", enabled3)
+      setFastMode: async (enabled2) => {
+        const current = editableConfig(resolveConfig(readConfig()));
+        await settingsBinding.replace({ ...current, liteMode: enabled2 });
+        setLiteModeEnabled(enabled2);
+        return enabled2;
+      }
     });
   }
 }

@@ -108,21 +108,6 @@ describe('PluginControlRuntime settings setup', () => {
     expect(apply.mock.calls[0]?.[0].codex.enabled).toBe(true)
   })
 
-  it('reads back the forced-thumbnail switch and keeps it across unrelated saves', async () => {
-    const directory = await temporaryDirectory()
-    const settings = settingsBinding({})
-    const handler = register(new PluginControlRuntime(resolveConfig(settings.get()), directory, settings, undefined, undefined))
-    await expect(handler('settings.thumbnail.set', { enabled: true }, signal()))
-      .resolves.toMatchObject({ ok: true, value: { config: { thumbnailMode: true } } })
-    await expect(handler('settings.get', {}, signal()))
-      .resolves.toMatchObject({ ok: true, value: { config: { thumbnailMode: true } } })
-    await expect(handler('settings.development.set', { terminalEnabled: false }, signal()))
-      .resolves.toMatchObject({ ok: true })
-    expect(settings.get().thumbnailMode).toBe(true)
-    await expect(handler('settings.thumbnail.set', { enabled: 'yes' }, signal()))
-      .resolves.toMatchObject({ ok: false })
-  })
-
   it('reads back the lite mode switch and keeps it across unrelated saves', async () => {
     const directory = await temporaryDirectory()
     const settings = settingsBinding({})

@@ -26,7 +26,6 @@ import type { FileViewerHostServiceLike } from './file-viewer-bridge.js'
 import { createPluginRouteDispatcher, type PluginRouteConnectionLike } from './plugin-route-dispatcher.js'
 import { installRemoteDiscoveryTools } from './remote-tools.js'
 import { editableConfig } from './control-runtime.js'
-import { setThumbnailModeEnabled } from './thumbnail-mode.js'
 import { setLiteModeEnabled } from './lite-mode.js'
 import { runHmrSafe, type HmrContextLike } from './hmr-safe-settings.js'
 import { PluginUpdateChecker } from './update-check.js'
@@ -357,18 +356,14 @@ async function activate(
     }
   }, 'dsh-remote lifecycle')
   if (config.remoteTools?.enabled) {
-    const persistSwitch = async (key: 'liteMode' | 'thumbnailMode', enabled: boolean) => {
-      const current = editableConfig(resolveConfig(readConfig()))
-      await settingsBinding!.replace({ ...current, [key]: enabled })
-      if (key === 'liteMode') setLiteModeEnabled(enabled)
-      else setThumbnailModeEnabled(enabled)
-      return enabled
-    }
     installRemoteDiscoveryTools(ctx, () => closed ? undefined : clientRuntime, settingsBinding === undefined ? undefined : {
       fastMode: () => resolveConfig(readConfig()).liteMode === true,
-      setFastMode: (enabled: boolean) => persistSwitch('liteMode', enabled),
-      thumbnailMode: () => resolveConfig(readConfig()).thumbnailMode === true,
-      setThumbnailMode: (enabled: boolean) => persistSwitch('thumbnailMode', enabled),
+      setFastMode: async (enabled: boolean) => {
+        const current = editableConfig(resolveConfig(readConfig()))
+        await settingsBinding.replace({ ...current, liteMode: enabled })
+        setLiteModeEnabled(enabled)
+        return enabled
+      },
     })
   }
 }

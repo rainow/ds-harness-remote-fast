@@ -4,7 +4,6 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { ControlResult } from './control-result.js'
 import { setLiteModeEnabled } from './lite-mode.js'
-import { setThumbnailModeEnabled } from './thumbnail-mode.js'
 import { resolveConfig, type Config, type ConfigInput, type ResolvedConfig } from './config.js'
 import {
   ClientModeError,
@@ -107,7 +106,6 @@ export class PluginControlRuntime {
       if (endpoint === 'settings.development.set') return ok(await this.setDevelopment(payload))
       if (endpoint === 'settings.appearance.set') return ok(await this.setAppearance(payload))
       if (endpoint === 'settings.lite.set') return ok(await this.setLite(payload))
-      if (endpoint === 'settings.thumbnail.set') return ok(await this.setThumbnail(payload))
       if (endpoint === 'settings.get') return ok(await this.settingsView())
       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
       if (endpoint === 'settings.server.set') return ok(await this.setServer(payload))
@@ -263,20 +261,6 @@ export class PluginControlRuntime {
     const current = editableConfig(resolveConfig(this.settings.get()))
     await this.settings.replace({ ...current, liteMode: enabled })
     setLiteModeEnabled(enabled)
-    return { ...await this.settingsView(), applies: 'live' }
-  }
-
-  private async setThumbnail(payload: unknown): Promise<PluginSettingsView> {
-    if (this.settings === undefined) {
-      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
-    }
-    const enabled = record(payload).enabled
-    if (typeof enabled !== 'boolean') {
-      throw new ClientModeError('INVALID_MESSAGE', 'The thumbnail switch must be a boolean.')
-    }
-    const current = editableConfig(resolveConfig(this.settings.get()))
-    await this.settings.replace({ ...current, thumbnailMode: enabled })
-    setThumbnailModeEnabled(enabled)
     return { ...await this.settingsView(), applies: 'live' }
   }
 
@@ -630,7 +614,6 @@ export function editableConfig(config: ResolvedConfig): Config {
     forceRelay: config.forceRelay,
     logLevel: config.logLevel,
     liteMode: config.liteMode,
-    thumbnailMode: config.thumbnailMode,
     reconnect: config.reconnect.enabled
       ? {
           initialDelayMs: config.reconnect.initialDelayMs,

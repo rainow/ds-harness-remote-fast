@@ -1890,9 +1890,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     allowControlCurrentDevice: "Allow control of this device",
     allowControlDevice: "Allow control of this device",
     liteMode: "Fast mode",
-    thumbnailMode: "Force thumbnails",
     liteModeHint: 'Send remote clients only what they need: the first history page keeps the latest 10 messages, tool details are compacted, and oversized plugin projections (such as the Context panel) are dropped, so that data is not available remotely. On by default; turn it off for the full history. Applies immediately. A remote client can ask the agent to flip it in chat, e.g. "turn on the fast mode switch of the ds-harness-remote-fast plugin".',
-    thumbnailModeHint: 'Shrink images before a remote client reads them: every image over 256 KB is re-encoded as a JPEG (longest edge 1024px, quality 75), which cuts a few-hundred-KB photo to tens of KB. Off by default; saves relay bandwidth, and the image opened full-screen is the same thumbnail, so fine details are lost. Applies immediately. A remote client can ask the agent to flip it in chat, e.g. "turn on the forced thumbnails switch of the ds-harness-remote-fast plugin".',
     connectedClientCount: "{count} connected",
     checkAcp: "Check backend",
     checkingAcp: "Checking ACP\u2026",
@@ -2203,9 +2201,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     allowControlCurrentDevice: "\u5141\u8BB8\u63A7\u5236\u672C\u673A",
     allowControlDevice: "\u5141\u8BB8\u63A7\u5236\u672C\u673A",
     liteMode: "\u6781\u901F\u6A21\u5F0F",
-    thumbnailMode: "\u5F3A\u5236\u7F29\u7565\u56FE",
     liteModeHint: "\u53EA\u5411\u8FDC\u7AEF\u63A8\u9001\u5FC5\u8981\u6570\u636E\uFF1A\u5386\u53F2\u4EC5\u4FDD\u7559\u6700\u8FD1 10 \u6761\u3001\u5DE5\u5177\u8BE6\u60C5\u505A\u538B\u7F29\uFF0C\u5E76\u4E22\u5F03\u4F53\u79EF\u8F83\u5927\u7684\u63D2\u4EF6\u6295\u5F71\uFF08\u5982\u4E0A\u4E0B\u6587\u9762\u677F\uFF09\uFF0C\u8FDC\u7AEF\u770B\u4E0D\u5230\u8FD9\u4E9B\u63D2\u4EF6\u6570\u636E\u3002\u9ED8\u8BA4\u5F00\u542F\uFF0C\u5173\u6389\u53EF\u83B7\u53D6\u5B8C\u6574\u5386\u53F2\u3002\u672C\u5F00\u5173\u5207\u6362\u540E\u7ACB\u5373\u751F\u6548\uFF0C\u8FDC\u7AEF\u8BBF\u95EE\u53EF\u4EE5\u5728\u5BF9\u8BDD\u4E2D\u8981\u6C42 agent \u6253\u5F00\u6216\u8005\u5173\u95ED\uFF0C\u6BD4\u5982\u300C\u6253\u5F00 ds-harness-remote-fast \u63D2\u4EF6\u7684\u6781\u901F\u6A21\u5F0F\u5F00\u5173\u300D\u3002",
-    thumbnailModeHint: "\u8FDC\u7AEF\u8BFB\u56FE\u524D\u5148\u538B\u6210\u7F29\u7565\u56FE\uFF1A\u8D85\u8FC7 256 KB \u7684\u56FE\u7247\u7EDF\u4E00\u91CD\u7F16\u7801\u4E3A JPEG\uFF08\u6700\u957F\u8FB9 1024px\u3001\u8D28\u91CF 75\uFF09\uFF0C\u51E0\u767E KB \u7684\u7167\u7247\u4F1A\u53D8\u6210\u51E0\u5341 KB\u3002\u9ED8\u8BA4\u5173\u95ED\uFF1B\u7701\u7684\u662F\u4E2D\u7EE7\u5E26\u5BBD\uFF0C\u4EE3\u4EF7\u662F\u70B9\u5F00\u5927\u56FE\u770B\u5230\u7684\u4E5F\u662F\u8FD9\u5F20\u7F29\u7565\u56FE\uFF0C\u7EC6\u8282\u4F1A\u635F\u5931\u3002\u672C\u5F00\u5173\u5207\u6362\u540E\u7ACB\u5373\u751F\u6548\uFF0C\u8FDC\u7AEF\u8BBF\u95EE\u53EF\u4EE5\u5728\u5BF9\u8BDD\u4E2D\u8981\u6C42 agent \u6253\u5F00\u6216\u8005\u5173\u95ED\uFF0C\u6BD4\u5982\u300C\u6253\u5F00 ds-harness-remote-fast \u63D2\u4EF6\u7684\u5F3A\u5236\u7F29\u7565\u56FE\u5F00\u5173\u300D\u3002",
     connectedClientCount: "{count} \u53F0\u5DF2\u8FDE\u63A5",
     checkAcp: "\u68C0\u6D4B\u540E\u7AEF",
     checkingAcp: "\u6B63\u5728\u68C0\u6D4B ACP\u2026",
@@ -3652,54 +3648,8 @@ Minimum version required to store current data is: ` + bestVersion + `.
       );
     };
   }
-  function createThumbnailModeSwitch(React) {
-    return function(props) {
-      let [enabled, setEnabled] = React.useState(!1), [busy, setBusy] = React.useState(!1), [showHint, setShowHint] = React.useState(!1);
-      React.useEffect(() => {
-        props.control("settings.get").then((view) => setEnabled(view.config.thumbnailMode === !0)).catch(() => {
-        });
-      }, [props.control]);
-      let toggle = async (next) => {
-        setEnabled(next), setBusy(!0);
-        try {
-          let view = await props.control("settings.thumbnail.set", { enabled: next });
-          setEnabled(view.config.thumbnailMode === !0);
-        } catch {
-          setEnabled(!next);
-        } finally {
-          setBusy(!1);
-        }
-      }, hint = props.t("thumbnailModeHint");
-      return React.createElement(
-        "div",
-        {
-          className: "dshRemoteHostControlToggle",
-          style: { marginLeft: "14px", position: "relative" }
-        },
-        React.createElement("span", { title: hint, style: { cursor: "help" } }, props.t("thumbnailMode")),
-        React.createElement("button", {
-          type: "button",
-          title: hint,
-          "aria-label": hint,
-          onClick: () => setShowHint(!showHint),
-          style: { width: "14px", height: "14px", borderRadius: "50%", border: "1px solid currentColor", background: "transparent", color: "inherit", fontSize: "10px", lineHeight: "12px", padding: "0", cursor: "pointer", opacity: 0.65, fontFamily: "inherit" }
-        }, "?"),
-        React.createElement("input", {
-          type: "checkbox",
-          role: "switch",
-          checked: enabled,
-          disabled: busy,
-          "aria-label": props.t("thumbnailMode"),
-          onChange: (event) => void toggle(event.target.checked)
-        }),
-        showHint ? React.createElement("div", {
-          style: { position: "absolute", top: "100%", left: "0", zIndex: 30, marginTop: "6px", width: "300px", padding: "8px 10px", borderRadius: "6px", background: "rgba(24,24,28,0.94)", color: "#fff", fontSize: "12px", fontWeight: 400, lineHeight: "1.5", boxShadow: "0 4px 16px rgba(0,0,0,0.28)", whiteSpace: "normal" }
-        }, hint) : null
-      );
-    };
-  }
   function createRemoteWorkspaceAction(React, portal) {
-    let ServerNotice = createServerNotice(React), LiteModeSwitch = createLiteModeSwitch(React), ThumbnailModeSwitch = createThumbnailModeSwitch(React), RemoteProgressView = createRemoteProgressView(React);
+    let ServerNotice = createServerNotice(React), LiteModeSwitch = createLiteModeSwitch(React), RemoteProgressView = createRemoteProgressView(React);
     function RemoteAccountEntry(props) {
       let [container, setContainer] = React.useState(null), { portal: portal2 } = props;
       if (React.useEffect(() => {
@@ -4478,7 +4428,6 @@ Minimum version required to store current data is: ` + bestVersion + `.
                         })
                       ) : null,
                       React.createElement(LiteModeSwitch, { control: props.control, t }),
-                      React.createElement(ThumbnailModeSwitch, { control: props.control, t }),
                       connectedMenu
                     )
                   ),
