@@ -88300,9 +88300,9 @@ var CodexRemoteDomain = class {
     if (!this.peers.has(connectionId)) throw new RpcError("CODEX_THREAD_UNAVAILABLE", "The CodeX thread is not available on this connection.");
     try {
       const assertCurrent = this.captureCallScope(connectionId);
-      const known = await this.readKnownThread(threadId);
+      const known2 = await this.readKnownThread(threadId);
       assertCurrent();
-      return known.cwd;
+      return known2.cwd;
     } catch (error62) {
       if (error62 instanceof RpcError && error62.code === "CODEX_THREAD_NOT_ALLOWED") {
         throw new RpcError("CODEX_THREAD_UNAVAILABLE", "The CodeX thread is not available.");
@@ -90096,8 +90096,8 @@ var IsolatedAcpClient = class {
     const p = params;
     if (method === "session/list") return this.catalog.call(method, params, timeoutMs);
     if (method === "session/new" || method === "session/load") {
-      const known = typeof p.sessionId === "string" ? this.clients.get(p.sessionId) : void 0;
-      if (known) return { sessionId: p.sessionId };
+      const known2 = typeof p.sessionId === "string" ? this.clients.get(p.sessionId) : void 0;
+      if (known2) return { sessionId: p.sessionId };
       const client2 = await this.create();
       let boundId = typeof p.sessionId === "string" ? p.sessionId : void 0;
       const queued = [];
@@ -98068,6 +98068,10 @@ async function encodeWithPngjs(buffer3) {
 async function encode21(buffer3, mediaType) {
   return await encodeWithSharp(buffer3) ?? (process.platform === "darwin" ? await encodeWithSips(buffer3, mediaType) : void 0) ?? (process.platform === "linux" ? await encodeWithImageMagick(buffer3, mediaType, "convert") : void 0) ?? (process.platform === "linux" ? await encodeWithImageMagick(buffer3, mediaType, "magick") : void 0) ?? (mediaType === "image/png" ? await encodeWithPngjs(buffer3) : void 0);
 }
+var onConverted;
+function setThumbnailMetricsSink(sink) {
+  onConverted = sink;
+}
 async function thumbnailImage(input4) {
   if (!shouldThumbnail(input4.mediaType, Buffer.byteLength(input4.data, "base64"))) return void 0;
   const buffer3 = Buffer.from(input4.data, "base64");
@@ -98080,6 +98084,13 @@ async function thumbnailImage(input4) {
     if (once === void 0) return void 0;
     if (once.data.length > buffer3.length * (1 - MIN_SAVING)) return void 0;
     remember(key, once);
+    onConverted?.({
+      identity: input4.identity,
+      mediaType: input4.mediaType,
+      originalBytes: buffer3.length,
+      thumbnailBytes: Buffer.byteLength(once.data, "base64"),
+      outputType: once.mediaType
+    });
     return once;
   } finally {
     release();
@@ -98100,15 +98111,81 @@ async function thumbnailAttachmentValue(value) {
   return thumbnail === void 0 ? void 0 : { ...value, data: thumbnail.data };
 }
 
+// src/attachment-store.ts
+import { readFile as readFile5, realpath as realpath7 } from "node:fs/promises";
+import { homedir as homedir8 } from "node:os";
+import { basename as basename6, join as join16, sep as sep2 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+var ATTACHMENT_ID = /^[a-f0-9]{64}$/;
+var ID_IN_TEXT = /"attachmentId":"sha256:([a-f0-9]{64})"/g;
+var KNOWN_LIMIT = 2048;
+var known = /* @__PURE__ */ new Map();
+function remember2(id6) {
+  if (known.has(id6)) return;
+  known.set(id6, true);
+  while (known.size > KNOWN_LIMIT) {
+    const oldest = known.keys().next().value;
+    if (oldest === void 0) break;
+    known.delete(oldest);
+  }
+}
+function rememberAttachmentRefs(text) {
+  for (const match of text.matchAll(ID_IN_TEXT)) {
+    const id6 = match[1];
+    if (id6 !== void 0) remember2(id6);
+  }
+}
+function isKnownAttachment(id6) {
+  return known.has(id6);
+}
+function attachmentStoreRoot() {
+  const home = process.env.DSH_HOME ?? join16(homedir8(), ".dsh");
+  return join16(home, "attachments", "v1", "objects");
+}
+function normalizePath(value) {
+  let path = value.trim();
+  if (path.length === 0 || path.length > 4096 || /[\u0000-\u001f]/.test(path)) return void 0;
+  try {
+    if (path.startsWith("file://")) path = fileURLToPath3(path);
+    else path = decodeURIComponent(path.split(/[?#]/u, 1)[0] ?? "");
+  } catch {
+    return void 0;
+  }
+  return path;
+}
+function sniffType(bytes) {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return "image/jpeg";
+  if (bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  if (bytes.length >= 6 && bytes.toString("ascii", 0, 3) === "GIF") return "image/gif";
+  return "application/octet-stream";
+}
+async function readKnownAttachment(rawPath) {
+  const path = normalizePath(rawPath);
+  if (path === void 0) return void 0;
+  const id6 = basename6(path);
+  if (!ATTACHMENT_ID.test(id6) || !isKnownAttachment(id6)) return void 0;
+  try {
+    const root = await realpath7(attachmentStoreRoot());
+    const resolved = await realpath7(path);
+    if (!resolved.startsWith(root + sep2)) return void 0;
+    const bytes = await readFile5(resolved);
+    if (bytes.length === 0) return void 0;
+    return { data: bytes.toString("base64"), mimeType: sniffType(bytes) };
+  } catch {
+    return void 0;
+  }
+}
+
 // src/harness-remote-bridge.ts
 import { randomUUID as randomUUID17 } from "node:crypto";
-import { lstat as lstat3, realpath as realpath7, stat as stat8 } from "node:fs/promises";
-import { dirname as dirname7, isAbsolute as isAbsolute10, join as join16, parse as parse4, relative as relative5, resolve as resolve8, sep as sep2 } from "node:path";
+import { lstat as lstat3, realpath as realpath8, stat as stat8 } from "node:fs/promises";
+import { dirname as dirname7, isAbsolute as isAbsolute10, join as join17, parse as parse4, relative as relative5, resolve as resolve8, sep as sep3 } from "node:path";
 
 // src/remote-directory-browser.ts
 import { mkdir as mkdir4, readdir as readdir5, stat as stat7 } from "node:fs/promises";
-import { homedir as homedir8, platform as platform2 } from "node:os";
-import { basename as basename6, dirname as dirname6, isAbsolute as isAbsolute9, parse as parse3, resolve as resolve7 } from "node:path";
+import { homedir as homedir9, platform as platform2 } from "node:os";
+import { basename as basename7, dirname as dirname6, isAbsolute as isAbsolute9, parse as parse3, resolve as resolve7 } from "node:path";
 var MAX_ENTRIES = 500;
 async function ensureHostWorkspaceDirectory(path) {
   if (typeof path !== "string" || path.trim() === "" || path.includes("\0") || !isAbsolute9(path) || resolve7(path) === parse3(path).root) {
@@ -98118,7 +98195,7 @@ async function ensureHostWorkspaceDirectory(path) {
 }
 async function listRemoteDirectory(path, signal) {
   signal?.throwIfAborted();
-  const home = resolve7(homedir8());
+  const home = resolve7(homedir9());
   const target3 = path === void 0 || path.trim() === "" ? home : resolve7(path);
   if (!isAbsolute9(target3)) throw new Error("The remote directory path must be absolute.");
   const rows = await readdir5(target3, { withFileTypes: true });
@@ -98146,7 +98223,7 @@ function crumbs(path) {
   const segments = [];
   let current = path;
   while (current !== root) {
-    segments.unshift(basename6(current));
+    segments.unshift(basename7(current));
     current = dirname6(current);
   }
   for (const segment of segments) {
@@ -98361,6 +98438,7 @@ var HarnessRemoteBridge = class {
     this.resolveWorkspaceRoot = resolveWorkspaceRoot;
     this.schedule = schedule;
     this.terminalCarrier = usesDuplexTerminal(harnessVersion) ? new TerminalCarrierCompat(gateway) : void 0;
+    installThumbnailMetrics(this.logger);
   }
   compactHistoryEnabled = false;
   streams = /* @__PURE__ */ new Map();
@@ -98421,10 +98499,28 @@ var HarnessRemoteBridge = class {
         params.endpoint,
         this.compactHistoryEnabled && ["session/page", "session/events", "session/history", "subagent/history"].includes(params.endpoint) ? compactHistory(filteredResult) : filteredResult
       );
+      if (HISTORY_ENDPOINTS.has(params.endpoint)) {
+        try {
+          rememberAttachmentRefs(JSON.stringify(wireResult));
+        } catch {
+        }
+      }
       const shaped = await applyThumbnailMode(params.endpoint, wireResult);
       return reservation === void 0 ? shaped : this.terminal.result(params.endpoint, params.payload, shaped, reservation);
     } catch (error62) {
       if (reservation !== void 0) this.terminal.result(params.endpoint, params.payload, { ok: false, error: { code: "FAILED", message: "", details: {} } }, reservation);
+      if (params.endpoint === "workspaceFiles/read") {
+        const failure5 = this.gateway.failure(error62);
+        if (failure5.code === "WORKSPACE_PATH_DENIED") {
+          const args = requestArgs(params.payload);
+          const path = typeof args.path === "string" ? args.path : void 0;
+          const fallback = path === void 0 ? void 0 : await this.attachmentRead(path);
+          if (fallback !== void 0) {
+            this.logger?.info("workspace read served from the attachment store", { bytes: Buffer.byteLength(String(fallback.value?.data ?? ""), "base64") });
+            return fallback;
+          }
+        }
+      }
       if (params.endpoint === "directoryPicker/list") {
         const result = await this.directoryList(params.payload, signal);
         this.logger?.debug("harness remote call ok", {
@@ -98441,6 +98537,28 @@ var HarnessRemoteBridge = class {
       });
       throw error62;
     }
+  }
+  /**
+   * Serve a known attachment to clients that read history images through
+   * `workspaceFiles/read` instead of `session/attachment`. Thumbnails apply here
+   * too, so forced-thumbnail mode covers both transports.
+   */
+  async attachmentRead(path) {
+    const file2 = await readKnownAttachment(path);
+    if (file2 === void 0) return void 0;
+    let data2 = file2.data;
+    let mimeType = file2.mimeType;
+    if (isThumbnailModeEnabled()) {
+      try {
+        const thumbnail = await thumbnailImage({ data: data2, mediaType: mimeType });
+        if (thumbnail !== void 0) {
+          data2 = thumbnail.data;
+          mimeType = thumbnail.mediaType;
+        }
+      } catch {
+      }
+    }
+    return { ok: true, value: { data: data2, mimeType } };
   }
   /** Validate one untrusted create request, then delegate to the Host schedule service. */
   async createSchedule(payload) {
@@ -98706,7 +98824,12 @@ var HarnessRemoteBridge = class {
           if (shaped === void 0) continue;
           frame = shaped;
         }
-        const bytes = encodeMessage(createEvent("harness.remote.frame", frame)).byteLength;
+        const encoded = encodeMessage(createEvent("harness.remote.frame", frame));
+        const bytes = encoded.byteLength;
+        const frameType = isJsonRecord(frame.value) && typeof frame.value.type === "string" ? frame.value.type : "";
+        if (frameType === "snapshot" || frameType === "page") {
+          rememberAttachmentRefs(Buffer.from(encoded).toString("utf8"));
+        }
         if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
           const value2 = isJsonRecord(frame.value) ? frame.value : void 0;
           this.logger?.info("outbound frame", {
@@ -98862,7 +98985,7 @@ var HarnessRemoteBridge = class {
       throw new RpcError("WORKSPACE_UNAVAILABLE", "The workspace is unavailable.");
     }
     try {
-      const root = await realpath7(cwd2);
+      const root = await realpath8(cwd2);
       const info = await stat8(root);
       if (!info.isDirectory()) throw new Error();
       return { root, cwd: cwd2 };
@@ -98891,10 +99014,10 @@ var HarnessRemoteBridge = class {
       }
       const base = !isPathOutside(relCwd) ? cwd2 : root;
       const rel = relative5(base, candidate);
-      const parts = rel.split(sep2).filter((p) => p.length > 0 && p !== ".");
+      const parts = rel.split(sep3).filter((p) => p.length > 0 && p !== ".");
       let currentPath = base;
       for (let i = 0; i < parts.length - 1; i++) {
-        currentPath = join16(currentPath, parts[i]);
+        currentPath = join17(currentPath, parts[i]);
         const dirRel = relative5(base, currentPath);
         if (isPathOutside(dirRel)) {
           throw new RpcError("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.");
@@ -98908,7 +99031,7 @@ var HarnessRemoteBridge = class {
       if (targetLstat.isSymbolicLink()) {
         throw new RpcError("WORKSPACE_PATH_DENIED", "The requested workspace path is not a regular file.");
       }
-      const canonical = await realpath7(candidate);
+      const canonical = await realpath8(candidate);
       if (process.platform === "win32") {
         const rootDrive = parse4(root).root.toLowerCase();
         const canonicalDrive = parse4(canonical).root.toLowerCase();
@@ -98929,7 +99052,7 @@ var HarnessRemoteBridge = class {
       }
       const safeRel = canonicalRel === "" ? "." : process.platform === "win32" ? canonicalRel.replaceAll("\\", "/") : canonicalRel;
       const dispatchedCandidate = resolve8(root, safeRel);
-      const dispatchedCanonical = await realpath7(dispatchedCandidate);
+      const dispatchedCanonical = await realpath8(dispatchedCandidate);
       const dispatchedRel = relative5(root, dispatchedCanonical);
       if (isPathOutside(dispatchedRel)) {
         throw new RpcError("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.");
@@ -99038,6 +99161,17 @@ async function applyThumbnailMode(endpoint, result) {
     return result;
   }
 }
+function installThumbnailMetrics(logger2) {
+  setThumbnailMetricsSink((metrics) => {
+    logger2?.info("attachment thumbnail", {
+      id: metrics.identity === void 0 ? void 0 : `${metrics.identity.slice(0, 15)}\u2026`,
+      in: metrics.originalBytes,
+      out: metrics.thumbnailBytes,
+      savedPct: Math.round((1 - metrics.thumbnailBytes / metrics.originalBytes) * 100),
+      output: metrics.outputType
+    });
+  });
+}
 function normalizeWorkspaceBinaryResult2(endpoint, result) {
   if (result.ok !== true || endpoint !== "workspaceFiles/readBytes" && endpoint !== "officeToPdf/render") return result;
   if (!isJsonRecord(result.value)) return result;
@@ -99084,6 +99218,7 @@ function needsDirectoryFallback(result) {
   return code.includes("capability") || code === "directory-picker/unavailable" || code === "directory-picker-unavailable" || message.includes("browse capability") || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
 }
 var FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024;
+var HISTORY_ENDPOINTS = /* @__PURE__ */ new Set(["session/page", "session/events", "session/history", "subagent/history", "session/list"]);
 var SESSION_PROJECTION_WHITELIST = /* @__PURE__ */ new Set([
   "permissions",
   "remoteStatusKnown",
@@ -100184,7 +100319,7 @@ function decodeBase64(value) {
 // src/cli.ts
 import { stat as stat9 } from "node:fs/promises";
 import { hostname as hostname5 } from "node:os";
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 var QR_POLL_INTERVAL_MS = 2e3;
 var TERMINAL_QR_MARGIN = 4;
 async function runCli(args = process.argv.slice(2), dependencies = {}) {
@@ -100275,7 +100410,7 @@ async function status(args, runtime) {
     `Server: ${serverUrl}`,
     "Host control: enabled"
   ];
-  if (!await exists3(join17(directory, "device.json"))) {
+  if (!await exists3(join18(directory, "device.json"))) {
     lines.push("Device: not initialized", "Authorization: logged out", "Credential: unavailable");
     write2(runtime.stdout, `${lines.join("\n")}
 
@@ -100320,7 +100455,7 @@ async function logout(args, runtime) {
   const serverUrl = selectedServer();
   const root = new IdentityStore({ env: runtime.env }).directory;
   const directory = serverStorageDirectory(root, serverUrl, "host");
-  if (!await exists3(join17(directory, "device.json"))) {
+  if (!await exists3(join18(directory, "device.json"))) {
     await new ServerCredentialStore(directory).clear();
     write2(runtime.stdout, "This Host is already logged out.\n");
     return 0;

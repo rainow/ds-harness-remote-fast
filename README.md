@@ -55,6 +55,14 @@
 
 **它不省什么**：对话过程中的增量帧、心跳/信令、Host 侧的 CPU 与磁盘（快照照旧生成，只在出站前裁剪）。
 
+### 通过 `workspaceFiles/read` 取图的客户端（DSH Go）
+
+有的客户端（实测 DSH Go）不调用 `session/attachment`，而是拿历史里的路径去调 `workspaceFiles/read`。粘贴进对话的图片存在 `~/.dsh/attachments/`（所有 workspace 之外），原生读取会返回 `WORKSPACE_PATH_DENIED`，于是图片一片空白。
+
+Host 现在补了一条**受限回退**：`workspaceFiles/read` 被拒时，如果路径正好是附件库里一个**已经被该 Host 发送给客户端**的 `attachmentId`（内容寻址、`sha256` 文件名），就直接返回字节；其它情况保持原有拒绝。缩略图在这个通道上同样生效。
+
+安全边界：只读、只认附件库目录内、只认已经出现在历史里的那批 id（Host 逐帧记录，上限 2048 个）。
+
 ## 强制缩略图（默认关闭）
 
 远端客户端读图走 `session/attachment`（历史里只有 `ImageAttachmentRef` 引用，没有图片字节），所以缩略图就是在这个响应上做：

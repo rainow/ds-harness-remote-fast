@@ -178,6 +178,22 @@ async function encode(buffer: Buffer, mediaType: string): Promise<Thumbnail | un
     ?? (mediaType === 'image/png' ? await encodeWithPngjs(buffer) : undefined)
 }
 
+/** Reported once per conversion so an A/B run is measurable. */
+export interface ThumbnailMetrics {
+  identity: string | undefined
+  mediaType: string
+  originalBytes: number
+  thumbnailBytes: number
+  outputType: string
+}
+
+let onConverted: ((metrics: ThumbnailMetrics) => void) | undefined
+
+/** Install the metrics sink (the bridge logs it at info level). */
+export function setThumbnailMetricsSink(sink: ((metrics: ThumbnailMetrics) => void) | undefined): void {
+  onConverted = sink
+}
+
 export interface ThumbnailInput {
   /** Canonical base64 of the stored attachment. */
   data: string
@@ -202,6 +218,13 @@ export async function thumbnailImage(input: ThumbnailInput): Promise<Thumbnail |
     if (once === undefined) return undefined
     if (once.data.length > buffer.length * (1 - MIN_SAVING)) return undefined
     remember(key, once)
+    onConverted?.({
+      identity: input.identity,
+      mediaType: input.mediaType,
+      originalBytes: buffer.length,
+      thumbnailBytes: Buffer.byteLength(once.data, 'base64'),
+      outputType: once.mediaType,
+    })
     return once
   } finally {
     release()

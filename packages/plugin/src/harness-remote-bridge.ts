@@ -1,5 +1,6 @@
 import { compactHistory } from './compact-history.js'
-import { thumbnailAttachmentValue } from './image-thumbnail.js'
+import { setThumbnailMetricsSink, thumbnailAttachmentValue, thumbnailImage } from './image-thumbnail.js'
+import { readKnownAttachment, rememberAttachmentRefs } from './attachment-store.js'
 import { isThumbnailModeEnabled } from './thumbnail-mode.js'
 import { applyLiteMode, isLiteModeEnabled } from './lite-mode.js'
 import { randomUUID } from 'node:crypto'
@@ -306,6 +307,7 @@ export class HarnessRemoteBridge {
     private readonly schedule?: ScheduleCreateService,
   ) {
     this.terminalCarrier = usesDuplexTerminal(harnessVersion) ? new TerminalCarrierCompat(gateway) : undefined
+    installThumbnailMetrics(this.logger)
   }
 
   async call(input: unknown): Promise<TypertRpcResult> {
@@ -373,10 +375,29 @@ export class HarnessRemoteBridge {
       const wireResult = normalizeWorkspaceBinaryResult(params.endpoint,
         this.compactHistoryEnabled && ['session/page', 'session/events', 'session/history', 'subagent/history'].includes(params.endpoint)
           ? compactHistory(filteredResult) : filteredResult)
+      if (HISTORY_ENDPOINTS.has(params.endpoint)) {
+        try {
+          rememberAttachmentRefs(JSON.stringify(wireResult))
+        } catch {
+          // Ignore: an unserializable result simply yields no known ids.
+        }
+      }
       const shaped = await applyThumbnailMode(params.endpoint, wireResult)
       return reservation === undefined ? shaped : this.terminal.result(params.endpoint, params.payload, shaped, reservation)
     } catch (error) {
       if (reservation !== undefined) this.terminal.result(params.endpoint, params.payload, { ok: false, error: { code: 'FAILED', message: '', details: {} } }, reservation)
+      if (params.endpoint === 'workspaceFiles/read') {
+        const failure = this.gateway.failure(error)
+        if (failure.code === 'WORKSPACE_PATH_DENIED') {
+          const args = requestArgs(params.payload)
+          const path = typeof args.path === 'string' ? args.path : undefined
+          const fallback = path === undefined ? undefined : await this.attachmentRead(path)
+          if (fallback !== undefined) {
+            this.logger?.info('workspace read served from the attachment store', { bytes: Buffer.byteLength(String((fallback as { value?: { data?: unknown } }).value?.data ?? ''), 'base64') })
+            return fallback
+          }
+        }
+      }
       if (params.endpoint === 'directoryPicker/list') {
         const result = await this.directoryList(params.payload, signal)
         this.logger?.debug('harness remote call ok', {
@@ -393,6 +414,30 @@ export class HarnessRemoteBridge {
       })
       throw error
     }
+  }
+
+  /**
+   * Serve a known attachment to clients that read history images through
+   * `workspaceFiles/read` instead of `session/attachment`. Thumbnails apply here
+   * too, so forced-thumbnail mode covers both transports.
+   */
+  private async attachmentRead(path: string): Promise<TypertRpcResult | undefined> {
+    const file = await readKnownAttachment(path)
+    if (file === undefined) return undefined
+    let data = file.data
+    let mimeType = file.mimeType
+    if (isThumbnailModeEnabled()) {
+      try {
+        const thumbnail = await thumbnailImage({ data, mediaType: mimeType })
+        if (thumbnail !== undefined) {
+          data = thumbnail.data
+          mimeType = thumbnail.mediaType
+        }
+      } catch {
+        // Fall through with the original bytes.
+      }
+    }
+    return { ok: true, value: { data, mimeType } }
   }
 
   /** Validate one untrusted create request, then delegate to the Host schedule service. */
@@ -679,7 +724,13 @@ export class HarnessRemoteBridge {
           if (shaped === undefined) continue
           frame = shaped
         }
-        const bytes = encodeMessage(createEvent('harness.remote.frame', frame)).byteLength
+        const encoded = encodeMessage(createEvent('harness.remote.frame', frame))
+        const bytes = encoded.byteLength
+        const frameType = isJsonRecord(frame.value) && typeof frame.value.type === 'string' ? frame.value.type : ''
+        if (frameType === 'snapshot' || frameType === 'page') {
+          // History frames name the attachments a client may later read.
+          rememberAttachmentRefs(Buffer.from(encoded).toString('utf8'))
+        }
         // Peak-only telemetry: fast mode is usually visible here, and logging
         // every small frame would drown the log.
         if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
@@ -1108,6 +1159,22 @@ async function applyThumbnailMode(endpoint: string, result: TypertRpcResult): Pr
   }
 }
 
+/**
+ * Thumbnail telemetry: one line per conversion, so a switch A/B is measurable
+ * from the Host log (`thumbnail` + original/thumbnail bytes).
+ */
+function installThumbnailMetrics(logger: SafeLogger | undefined): void {
+  setThumbnailMetricsSink(metrics => {
+    logger?.info('attachment thumbnail', {
+      id: metrics.identity === undefined ? undefined : `${metrics.identity.slice(0, 15)}…`,
+      in: metrics.originalBytes,
+      out: metrics.thumbnailBytes,
+      savedPct: Math.round((1 - metrics.thumbnailBytes / metrics.originalBytes) * 100),
+      output: metrics.outputType,
+    })
+  })
+}
+
 function normalizeWorkspaceBinaryResult(endpoint: string, result: TypertRpcResult): TypertRpcResult {
   if (result.ok !== true || (endpoint !== 'workspaceFiles/readBytes' && endpoint !== 'officeToPdf/render')) return result
   if (!isJsonRecord(result.value)) return result
@@ -1167,6 +1234,9 @@ function needsDirectoryFallback(result: TypertRpcResult): boolean {
 
 /** Frames at or above this size are logged so an A/B run is measurable. */
 const FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024
+/** Endpoints whose payloads name history attachments. */
+const HISTORY_ENDPOINTS = new Set(['session/page', 'session/events', 'session/history', 'subagent/history', 'session/list'])
+
 
 const SESSION_PROJECTION_WHITELIST = new Set([
   'permissions',
