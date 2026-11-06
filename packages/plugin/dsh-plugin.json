@@ -2,7 +2,7 @@
   "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
   "id": "top.rainow.ds-harness-remote-fast",
   "name": "ds-harness-remote-fast",
-  "version": "0.6.3-fast.1",
+  "version": "0.6.3-fast.3",
   "manifestVersion": "0.15",
   "facets": {
     "host": {
