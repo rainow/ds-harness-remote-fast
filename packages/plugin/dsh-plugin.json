@@ -1,8 +1,8 @@
 {
   "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
-  "id": "com.r2049.ds-harness-remote",
-  "name": "ds-harness-remote",
-  "version": "0.6.4",
+  "id": "top.rainow.ds-harness-remote-fast",
+  "name": "ds-harness-remote-fast",
+  "version": "0.6.4-fast.1",
   "manifestVersion": "0.15",
   "facets": {
     "host": {
@@ -13,6 +13,6 @@
   "subscriptions": [],
   "license": "MIT",
   "source": {
-    "repository": "https://github.com/liguobao/ds-harness-remote"
+    "repository": "https://github.com/rainow/ds-harness-remote-fast"
   }
 }

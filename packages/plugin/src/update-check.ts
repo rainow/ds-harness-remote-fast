@@ -16,8 +16,8 @@ export interface PluginUpdateSnapshot {
 
 /** dist-tags endpoints raced in parallel; the mirror backs up the official registry. */
 const DIST_TAG_URLS = [
-  'https://registry.npmjs.org/-/package/ds-harness-remote/dist-tags',
-  'https://registry.npmmirror.com/-/package/ds-harness-remote/dist-tags',
+  'https://registry.npmjs.org/-/package/ds-harness-remote-fast/dist-tags',
+  'https://registry.npmmirror.com/-/package/ds-harness-remote-fast/dist-tags',
 ]
 const FETCH_TIMEOUT_MS = 10_000
 const RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1000

@@ -1,5 +1,5 @@
 /**
- * Version of the `ds-harness-remote` distribution.
+ * Version of the `ds-harness-remote-fast` distribution.
  *
  * This is reported to the Server during device registration (`clientVersion`
  * in the Device Descriptor) and again in the WebSocket `hello` frame. The
@@ -8,4 +8,4 @@
  * If they diverge, `npm scripts` checks in `scripts/verify-version-sync.mjs`
  * will fail fast during build/check/test.
  */
-export const PLUGIN_VERSION = '0.6.4'
+export const PLUGIN_VERSION = '0.6.4-fast.1'
