@@ -1,4 +1,5 @@
 import { compactHistory } from './compact-history.js'
+import { applyLiteMode, isLiteModeEnabled } from './lite-mode.js'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { lstat, realpath, stat } from 'node:fs/promises'
@@ -314,7 +315,7 @@ export class HarnessRemoteBridge {
     if (TERMINAL_STREAMS.has(params.endpoint)) throw new RpcError('METHOD_NOT_ALLOWED', 'Use a stream for this terminal endpoint.')
     if (['settings/update', 'settings/replace', 'settings/mutate'].includes(params.endpoint)) {
       const args = requestArgs(params.payload)
-      if (args.ns === 'ds-harness-remote' || args.ns === 'dsh-remote') {
+      if (args.ns === 'ds-harness-remote-fast' || args.ns === 'ds-harness-remote' || args.ns === 'dsh-remote') {
         throw new RpcError('PERMISSION_DENIED', 'Remote access settings can only be changed locally on the Host.')
       }
     }
@@ -710,12 +711,30 @@ export class HarnessRemoteBridge {
     try {
       for await (const value of source) {
         if (signal.aborted) break
-        const frame: HarnessRemoteFrameData = {
+        let frame: HarnessRemoteFrameData = {
           streamId,
           hasValue: true,
-          ...(value === undefined ? {} : { value: historyFollow && this.compactHistoryEnabled && isCompactSnapshot(value) ? compactHistory(value) : value }),
+          ...(value === undefined ? {} : { value: historyFollow && (this.compactHistoryEnabled || isLiteModeEnabled()) && isCompactSnapshot(value) ? compactHistory(value) : value }),
         }
-        if (encodeMessage(createEvent('harness.remote.frame', frame)).byteLength > MAX_SECURE_MESSAGE_BYTES) {
+        if (isLiteModeEnabled()) {
+          const shaped = applyLiteMode(frame) as HarnessRemoteFrameData | undefined
+          if (shaped === undefined) continue
+          frame = shaped
+        }
+        const encoded = encodeMessage(createEvent('harness.remote.frame', frame))
+        const bytes = encoded.byteLength
+        // Peak-only telemetry: fast mode is usually visible here, and logging
+        // every small frame would drown the log.
+        if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
+          const value = isJsonRecord(frame.value) ? frame.value : undefined
+          this.logger?.info('outbound frame', {
+            type: typeof value?.type === 'string' ? value.type : 'unknown',
+            bytes,
+            lite: isLiteModeEnabled(),
+            transferFrames,
+          })
+        }
+        if (bytes > MAX_SECURE_MESSAGE_BYTES) {
           if (!transferFrames) throw new Error('Oversized Harness Remote frame')
           await this.transferStreamFrame(frame, signal)
         } else {
@@ -1305,6 +1324,10 @@ function needsDirectoryFallback(result: TypertRpcResult): boolean {
     || message.includes('directory-picker-unavailable')
 }
 
+/** Frames at or above this size are logged so an A/B run is measurable. */
+const FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024
+
+
 const SESSION_PROJECTION_WHITELIST = new Set([
   'permissions',
   'remoteStatusKnown',
@@ -1455,7 +1478,7 @@ export function filterSessionListProjections(
 function filterRemotePluginInventory(endpoint: string, result: TypertRpcResult): TypertRpcResult {
   if (!result.ok) return result
   const isRemote = (value: unknown): boolean => typeof value === 'string'
-    && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
+    && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
   const filterEntries = (entries: unknown[]): unknown[] => entries.filter(entry =>
     !isRecord(entry) || !isRemote(entry.moduleName))
   if (endpoint === 'pluginManager/listPlugins' && Array.isArray(result.value)) {
@@ -1494,7 +1517,7 @@ function isCompactSnapshot(value: unknown): boolean {
 /** Whether one official plugin-manager row belongs to this Remote plugin or its bundle. */
 function remoteOwnedBundleRow(row: Record<string, unknown>, plugin: boolean): boolean {
   const remoteModule = (value: unknown): boolean => typeof value === 'string'
-    && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
+    && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
   if (remoteModule(plugin ? row.moduleName : row.name)) return true
   return !plugin && (!Array.isArray(row.rows)
     || row.rows.some(value => !isRecord(value) || remoteModule(value.moduleName))
