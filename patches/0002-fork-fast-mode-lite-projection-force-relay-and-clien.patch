@@ -1,0 +1,1108 @@
+From c183fa004345933faf90186663aba491da70b525 Mon Sep 17 00:00:00 2001
+From: rainow <rainow@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 16:05:02 +0800
+Subject: [PATCH 2/3] fork: fast mode (lite projection + force relay) and
+ client extras
+
+---
+ packages/plugin/src/client-connection.ts      |  13 +-
+ packages/plugin/src/client-locale.ts          |   8 ++
+ packages/plugin/src/client-runtime.ts         |   3 +-
+ packages/plugin/src/client.ts                 |   8 +-
+ packages/plugin/src/client/types.ts           |   1 +
+ packages/plugin/src/client/workspaces.ts      |  70 +++++++++-
+ packages/plugin/src/config.ts                 |  10 ++
+ packages/plugin/src/control-runtime.ts        |  94 +++++++++++--
+ packages/plugin/src/harness-remote-bridge.ts  |  35 ++++-
+ packages/plugin/src/index.ts                  |  16 ++-
+ packages/plugin/src/lite-mode.ts              | 129 ++++++++++++++++++
+ packages/plugin/src/relay-preference.ts       |  33 +++++
+ packages/plugin/src/remote-tools.ts           |  36 ++++-
+ packages/plugin/src/server-connection.ts      |  24 +++-
+ packages/plugin/src/service.ts                |   4 +
+ packages/plugin/tests/client-runtime.test.ts  |   1 +
+ packages/plugin/tests/control-runtime.test.ts |  29 ++++
+ packages/plugin/tests/lite-mode.test.ts       |  52 +++++++
+ .../plugin/tests/multi-client-runtime.test.ts |   1 +
+ .../plugin/tests/relay-preference.test.ts     |  40 ++++++
+ .../plugin/tests/server-connection.test.ts    |   1 +
+ 21 files changed, 571 insertions(+), 37 deletions(-)
+ create mode 100644 packages/plugin/src/lite-mode.ts
+ create mode 100644 packages/plugin/src/relay-preference.ts
+ create mode 100644 packages/plugin/tests/lite-mode.test.ts
+ create mode 100644 packages/plugin/tests/relay-preference.test.ts
+
+diff --git a/packages/plugin/src/client-connection.ts b/packages/plugin/src/client-connection.ts
+index c592d3a..1f77831 100644
+--- a/packages/plugin/src/client-connection.ts
++++ b/packages/plugin/src/client-connection.ts
+@@ -21,6 +21,7 @@ import {
+   websocketUrl,
+ } from './client-runtime-contract.js'
+ import { ClientSecureTransport } from './client-secure-transport.js'
++import { isForceRelayEnabled, transportAttempts } from './relay-preference.js'
+ import type { ResolvedConfig } from './config.js'
+ import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
+ import type { SafeLogger } from './logging.js'
+@@ -45,6 +46,8 @@ export class ClientConnection {
+ 
+   async connect(targetDeviceId: string, signal?: AbortSignal, options: { background?: boolean } = {}): Promise<ConnectedRemote> {
+     signal?.throwIfAborted()
++    // Runtime toggle wins over the value captured when the plugin was built.
++    const forceRelay = isForceRelayEnabled() || this.context.config.forceRelay
+     const progressRunId = options.background ? -1 : this.context.connectionProgressRun + 1
+     if (!options.background) {
+       this.context.connectionProgressRun = progressRunId
+@@ -72,10 +75,10 @@ export class ClientConnection {
+       if (!presence.online) throw new ClientModeError('HOST_OFFLINE', 'The selected Host is offline.', true)
+       const credentials = await this.context.server.authenticate(identity)
+       signal?.throwIfAborted()
+-      const rtcFactory = this.context.config.forceRelay
++      const rtcFactory = forceRelay
+         ? undefined
+         : await this.context.rtcFactoryProvider({ routeTargets: [this.context.server.baseUrl] }).catch(() => undefined)
+-      if (!this.context.config.forceRelay && rtcFactory === undefined) {
++      if (!forceRelay && rtcFactory === undefined) {
+         this.context.logger.warn('remote Harness WebRTC backend unavailable; using relay', {
+           targetDeviceId: shortId(target.deviceId),
+         })
+@@ -89,7 +92,7 @@ export class ClientConnection {
+           accessToken: credentials.accessToken,
+           refreshAccessToken: async () => (await this.context.server.authenticate(identity)).accessToken,
+           targetDeviceId,
+-          forceRelay: this.context.config.forceRelay || attempt === 'relay',
++          forceRelay: forceRelay || attempt === 'relay',
+           preferredTransports: preferredTransportsForAttempt(attempt),
+           negotiateTimeoutMs: attempt === 'direct' ? DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS : undefined,
+           ...(rtcFactory === undefined || attempt === 'relay' ? {} : { rtcFactory }),
+@@ -113,9 +116,7 @@ export class ClientConnection {
+           },
+         },
+       )
+-      const attempts: TransportAttempt[] = this.context.config.forceRelay || rtcFactory === undefined
+-        ? ['relay']
+-        : ['direct', 'turn', 'relay']
++      const attempts: TransportAttempt[] = transportAttempts(forceRelay, rtcFactory !== undefined)
+       let transport: AdaptiveTransport | undefined
+       for (const attempt of attempts) {
+         webRtcFallback = false
+diff --git a/packages/plugin/src/client-locale.ts b/packages/plugin/src/client-locale.ts
+index d73e80a..8ec9b49 100644
+--- a/packages/plugin/src/client-locale.ts
++++ b/packages/plugin/src/client-locale.ts
+@@ -300,6 +300,10 @@ export const en = {
+   startSignIn: 'Start sign-in',
+   allowControlCurrentDevice: 'Allow control of this device',
+   allowControlDevice: 'Allow control of this device',
++  liteMode: 'Fast mode',
++  forceRelay: 'Force relay',
++  forceRelayHint: 'Skip LAN, internet-direct and TURN probing and connect straight through the encrypted relay. Faster first connection and reconnects, but all traffic goes through the server.',
++  liteModeHint: 'Send remote clients only what they need: the first history page keeps the latest 10 messages, tool details are compacted, and oversized plugin projections (such as the Context panel) are dropped, so that data is not available remotely. On by default; turn it off for the full history. Applies immediately. A remote client can ask the agent to flip it in chat, e.g. "turn on the fast mode switch of the ds-harness-remote-fast plugin".',
+   connectedClientCount: '{count} connected',
+   checkAcp: 'Check backend',
+   checkingAcp: 'Checking ACP…',
+@@ -654,6 +658,10 @@ export const zh: Record<keyof typeof en, string> = {
+   startSignIn: '开始登录',
+   allowControlCurrentDevice: '允许控制本机',
+   allowControlDevice: '允许控制本机',
++  liteMode: '极速模式',
++  forceRelay: '强制中继',
++  forceRelayHint: '跳过局域网、互联网直连和 TURN 探测，直接走加密中继。首次连接与断线重连更快，但流量会经过服务器。',
++  liteModeHint: '只向远端推送必要数据：历史仅保留最近 10 条、工具详情做压缩，并丢弃体积较大的插件投影（如上下文面板），远端看不到这些插件数据。默认开启，关掉可获取完整历史。本开关切换后立即生效，远端访问可以在对话中要求 agent 打开或者关闭，比如「打开 ds-harness-remote-fast 插件的极速模式开关」。',
+   connectedClientCount: '{count} 台已连接',
+   checkAcp: '检测后端',
+   checkingAcp: '正在检测 ACP…',
+diff --git a/packages/plugin/src/client-runtime.ts b/packages/plugin/src/client-runtime.ts
+index a78ec6c..df07ea9 100644
+--- a/packages/plugin/src/client-runtime.ts
++++ b/packages/plugin/src/client-runtime.ts
+@@ -8,6 +8,7 @@ import type { HarnessMode } from './harness-target.js'
+ import { probeRemoteHostFeatures, remoteHostFeatures } from './client-capabilities.js'
+ import { ClientCodexStreams } from './client-codex-streams.js'
+ import { ClientConnection } from './client-connection.js'
++import { isForceRelayEnabled } from './relay-preference.js'
+ import { ClientReconnect } from './client-reconnect.js'
+ import { ClientControl } from './client-control.js'
+ import type {
+@@ -270,7 +271,7 @@ export class ClientModeRuntime {
+       ...(this.clientAuthRequired && !this.connected && targetStatus.mode === 'remote' ? { clientAuthRequired: true } : {}),
+       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
+       connectedTargetDeviceId: this.connected?.target.deviceId,
+-      preferredTransports: this.config.forceRelay ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
++      preferredTransports: isForceRelayEnabled() || this.config.forceRelay ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
+       ...(this.connectionProgress === undefined ? {} : {
+         connectionProgress: {
+           targetDeviceId: this.connectionProgress.targetDeviceId,
+diff --git a/packages/plugin/src/client.ts b/packages/plugin/src/client.ts
+index 8bf1885..785c4a2 100644
+--- a/packages/plugin/src/client.ts
++++ b/packages/plugin/src/client.ts
+@@ -50,7 +50,7 @@ declare const DSH_REMOTE_CLIENT_MODULE_ID: string | undefined
+ 
+ const clientModuleId = typeof DSH_REMOTE_CLIENT_MODULE_ID === 'string'
+   ? DSH_REMOTE_CLIENT_MODULE_ID
+-  : 'ds-harness-remote'
++  : 'ds-harness-remote-fast'
+ const controlRouteBackoffStepsMs = [1_000, 2_000, 5_000, 10_000, 30_000] as const
+ 
+ class ControlRouteUnavailableError extends Error {
+@@ -104,7 +104,7 @@ window.__ModuleLoader__.load({
+     // section, so this jumps straight to the Remote card instead of requiring a
+     // scroll through the whole document.
+     function RemotePluginSettingsAction(props: { t: Translate; subject?: unknown }): unknown {
+-      if (pluginSubjectPackageName(props.subject) !== 'ds-harness-remote') return null
++      if (!['ds-harness-remote-fast', 'ds-harness-remote'].includes(pluginSubjectPackageName(props.subject) ?? '')) return null
+       const label = props.t('openPluginSettings')
+       return React.createElement('button', {
+         type: 'button',
+@@ -634,7 +634,7 @@ window.__ModuleLoader__.load({
+       // (`cordis.patch.yml` row `ds-harness-remote`).
+       ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
+         name: 'plugins.row.config',
+-        key: 'ds-harness-remote#ds-harness-remote',
++        key: 'ds-harness-remote-fast#ds-harness-remote',
+         locale: localeNamespace,
+         inject: () => ({
+           control,
+@@ -648,7 +648,7 @@ window.__ModuleLoader__.load({
+       // package name.
+       ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+         name: 'plugins.bundle.config',
+-        key: 'ds-harness-remote',
++        key: 'ds-harness-remote-fast',
+         locale: localeNamespace,
+         inject: () => ({
+           control,
+diff --git a/packages/plugin/src/client/types.ts b/packages/plugin/src/client/types.ts
+index 178296c..9871389 100644
+--- a/packages/plugin/src/client/types.ts
++++ b/packages/plugin/src/client/types.ts
+@@ -205,6 +205,7 @@ interface PluginSettings {
+   remoteTools?: { enabled?: boolean }
+   forceRelay?: boolean
+   logLevel?: 'debug' | 'info' | 'warn' | 'error'
++  liteMode?: boolean
+   reconnect?: boolean | {
+     enabled?: boolean
+     initialDelayMs?: number
+diff --git a/packages/plugin/src/client/workspaces.ts b/packages/plugin/src/client/workspaces.ts
+index 40500bc..afbb570 100644
+--- a/packages/plugin/src/client/workspaces.ts
++++ b/packages/plugin/src/client/workspaces.ts
+@@ -29,9 +29,75 @@ import type {
+   SidebarEntryStyle,
+ } from './types.js'
+ 
++type ToggleConfigKey = 'liteMode' | 'forceRelay'
++
++const TOGGLES: Record<ToggleConfigKey, { label: 'liteMode' | 'forceRelay', hint: 'liteModeHint' | 'forceRelayHint', endpoint: string }> = {
++  liteMode: { label: 'liteMode', hint: 'liteModeHint', endpoint: 'settings.lite.set' },
++  forceRelay: { label: 'forceRelay', hint: 'forceRelayHint', endpoint: 'settings.forceRelay.set' },
++}
++
++function createRemoteToggleSwitch(React: ClientReact) {
++  return function RemoteToggleSwitch(props: {
++    control: <T>(endpoint: string, payload?: unknown) => Promise<T>
++    t: Translate
++    configKey: ToggleConfigKey
++  }) {
++    const meta = TOGGLES[props.configKey]
++    const [enabled, setEnabled] = React.useState(false)
++    const [busy, setBusy] = React.useState(false)
++    const [showHint, setShowHint] = React.useState(false)
++    React.useEffect(() => {
++      props.control<PluginSettingsView>('settings.get')
++        .then(view => setEnabled(view.config[props.configKey] === true))
++        .catch(() => undefined)
++    }, [props.control, props.configKey])
++    const toggle = async (next: boolean) => {
++      setEnabled(next)
++      setBusy(true)
++      try {
++        const view = await props.control<PluginSettingsView>(meta.endpoint, { enabled: next })
++        setEnabled(view.config[props.configKey] === true)
++      } catch {
++        setEnabled(!next)
++      } finally {
++        setBusy(false)
++      }
++    }
++    const label = props.t(meta.label)
++    const hint = props.t(meta.hint)
++    return React.createElement('div', {
++      className: 'dshRemoteHostControlToggle',
++      style: { marginLeft: '14px', position: 'relative' },
++    },
++      React.createElement('span', { title: hint, style: { cursor: 'help' } }, label),
++      React.createElement('button', {
++        type: 'button',
++        title: hint,
++        'aria-label': hint,
++        onClick: () => setShowHint(!showHint),
++        style: { width: '14px', height: '14px', borderRadius: '50%', border: '1px solid currentColor', background: 'transparent', color: 'inherit', fontSize: '10px', lineHeight: '12px', padding: '0', cursor: 'pointer', opacity: 0.65, fontFamily: 'inherit' },
++      }, '?'),
++      React.createElement('input', {
++        type: 'checkbox',
++        role: 'switch',
++        checked: enabled,
++        disabled: busy,
++        'aria-label': label,
++        onChange: (event: Event) => void toggle((event.target as HTMLInputElement).checked),
++      }),
++      showHint
++        ? React.createElement('div', {
++          style: { position: 'absolute', top: '100%', left: '0', zIndex: 30, marginTop: '6px', width: '280px', padding: '8px 10px', borderRadius: '6px', background: 'rgba(24,24,28,0.94)', color: '#fff', fontSize: '12px', fontWeight: 400, lineHeight: '1.5', boxShadow: '0 4px 16px rgba(0,0,0,0.28)', whiteSpace: 'normal' },
++        }, hint)
++        : null,
++    )
++  }
++}
++
+ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalRenderer) {
+   const ServerNotice = createServerNotice(React)
+   const HostPairingPanel = createHostPairingPanel(React)
++  const RemoteToggleSwitch = createRemoteToggleSwitch(React)
+   const RemoteProgressView = createRemoteProgressView(React)
+ 
+   /**
+@@ -1436,6 +1502,8 @@ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalR
+                         checked: status.host?.authorized === true,
+                         onChange: (event: Event) => void setCurrentDeviceControl((event.target as HTMLInputElement).checked),
+                       })) : null,
++                    React.createElement(RemoteToggleSwitch, { control: props.control, t, configKey: 'liteMode' }),
++                    React.createElement(RemoteToggleSwitch, { control: props.control, t, configKey: 'forceRelay' }),
+                     connectedMenu)),
+                 React.createElement('div', {
+                   className: `dshRemoteHostList${connectingHost === undefined ? '' : ' isCollapsed'}`,
+@@ -1471,7 +1539,7 @@ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalR
+                       })),
+                     updateNotice === undefined ? null : React.createElement('a', {
+                       className: 'dshRemoteAccountUpdate',
+-                      href: 'https://github.com/liguobao/ds-harness-remote/releases',
++                      href: 'https://github.com/rainow/ds-harness-remote-fast/releases',
+                       target: '_blank',
+                       rel: 'noreferrer',
+                       title: updateNotice,
+diff --git a/packages/plugin/src/config.ts b/packages/plugin/src/config.ts
+index 56e459f..20c1d2f 100644
+--- a/packages/plugin/src/config.ts
++++ b/packages/plugin/src/config.ts
+@@ -27,6 +27,12 @@ export interface Config {
+    */
+   rotatePinnedPeerKey?: boolean
+   logLevel?: 'debug' | 'info' | 'warn' | 'error'
++  /**
++   * Send remote clients only what they need: the initial history page keeps the latest
++   * few messages and oversized plugin projections are dropped. Cuts the first-paint
++   * payload from megabytes to kilobytes on large sessions. Default: false.
++   */
++  liteMode?: boolean
+   reconnect?: boolean | {
+     initialDelayMs?: number
+     maxDelayMs?: number
+@@ -77,6 +83,7 @@ export interface ResolvedConfig {
+   forceRelay: boolean
+   rotatePinnedPeerKey: boolean
+   logLevel: 'debug' | 'info' | 'warn' | 'error'
++  liteMode: boolean
+   reconnect: {
+     enabled: boolean
+     initialDelayMs: number
+@@ -121,6 +128,7 @@ export const entryConfigSchema = s.object({
+   forceRelay: s.boolean(),
+   rotatePinnedPeerKey: s.boolean(),
+   logLevel: s.union(['debug', 'info', 'warn', 'error'] as const),
++  liteMode: s.boolean().default(true),
+   reconnect: s.union([
+     s.boolean(),
+     s.object({
+@@ -178,6 +186,7 @@ const configSchema = z.object({
+   forceRelay: z.boolean().optional(),
+   rotatePinnedPeerKey: z.boolean().optional(),
+   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
++  liteMode: z.boolean().optional(),
+   reconnect: reconnectSchema.optional(),
+   codex: z.object({
+     enabled: z.boolean().optional(),
+@@ -226,6 +235,7 @@ export function resolveConfig(input: ConfigInput = {}, env: NodeJS.ProcessEnv =
+     forceRelay: parsed.forceRelay ?? false,
+     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
+     logLevel: parsed.logLevel ?? 'info',
++    liteMode: parsed.liteMode !== false,
+     reconnect: {
+       enabled: parsed.reconnect !== false,
+       initialDelayMs,
+diff --git a/packages/plugin/src/control-runtime.ts b/packages/plugin/src/control-runtime.ts
+index ffea905..04a4111 100644
+--- a/packages/plugin/src/control-runtime.ts
++++ b/packages/plugin/src/control-runtime.ts
+@@ -1,7 +1,10 @@
+ import { hostname } from 'node:os'
+ import { existsSync } from 'node:fs'
+-import { execFileSync } from 'node:child_process'
++import { execFile } from 'node:child_process'
++import { promisify } from 'node:util'
+ import type { ControlResult } from './control-result.js'
++import { setLiteModeEnabled } from './lite-mode.js'
++import { setForceRelayEnabled } from './relay-preference.js'
+ import { resolveConfig, type Config, type ConfigInput, type ResolvedConfig } from './config.js'
+ import {
+   ClientModeError,
+@@ -26,6 +29,8 @@ import { codexBinaryCandidates } from './codex/domain.js'
+ import { cursorBinaryCandidates } from './acp/gateway.js'
+ import { defaultCheckExecutable, installOrConfigureBackend, isBuiltinAcpBackend } from './acp/backend-installer.js'
+ 
++const execFileAsync = promisify(execFile)
++
+ export interface PluginSettingsView {
+   config: Config
+   deviceName: string
+@@ -148,6 +153,8 @@ export class PluginControlRuntime {
+       }
+       if (endpoint === 'settings.development.set') return ok(await this.setDevelopment(payload))
+       if (endpoint === 'settings.appearance.set') return ok(await this.setAppearance(payload))
++      if (endpoint === 'settings.lite.set') return ok(await this.setLite(payload))
++      if (endpoint === 'settings.forceRelay.set') return ok(await this.setForceRelay(payload))
+       if (endpoint === 'settings.get') return ok(await this.settingsView())
+       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
+       if (endpoint === 'settings.server.set') return ok(await this.setServer(payload))
+@@ -398,6 +405,40 @@ export class PluginControlRuntime {
+     return { ...await this.settingsView(), applies: 'live' }
+   }
+ 
++  private async setLite(payload: unknown): Promise<PluginSettingsView> {
++    if (this.settings === undefined) {
++      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
++    }
++    const enabled = record(payload).enabled
++    if (typeof enabled !== 'boolean') {
++      throw new ClientModeError('INVALID_MESSAGE', 'The lite mode switch must be a boolean.')
++    }
++    const current = editableConfig(resolveConfig(this.settings.get()))
++    await this.settings.replace({ ...current, liteMode: enabled })
++    setLiteModeEnabled(enabled)
++    return { ...await this.settingsView(), applies: 'live' }
++  }
++
++  /**
++   * Relay-only preference. Applies to new connections; the Host re-dials the
++   * Server so its advertised capabilities (and the Server-side negotiation)
++   * drop LAN/P2P/TURN right away.
++   */
++  private async setForceRelay(payload: unknown): Promise<PluginSettingsView> {
++    if (this.settings === undefined) {
++      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
++    }
++    const enabled = record(payload).enabled
++    if (typeof enabled !== 'boolean') {
++      throw new ClientModeError('INVALID_MESSAGE', 'The relay preference must be a boolean.')
++    }
++    const current = editableConfig(resolveConfig(this.settings.get()))
++    await this.settings.replace({ ...current, forceRelay: enabled })
++    setForceRelayEnabled(enabled)
++    this.host?.reconnectHost()
++    return { ...await this.settingsView(), applies: 'live' }
++  }
++
+   private async setRole(payload: unknown): Promise<PluginSettingsView> {
+     if (this.settings === undefined) {
+       throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+@@ -656,7 +697,7 @@ export class PluginControlRuntime {
+       writable: this.settings !== undefined,
+       applies: 'restart',
+       associations,
+-      acpAvailability: Object.fromEntries((config.acp?.backends ?? []).map(item => [item.id, backendCommandAvailable(item.id, item.command ?? '')])),
++      acpAvailability: await this.acpAvailability(config.acp?.backends ?? []),
+       ...(association === undefined ? {} : { association }),
+       ...(this.startupFailure === undefined ? {} : {
+         startupError: safeStartupError(this.startupFailure),
+@@ -664,6 +705,12 @@ export class PluginControlRuntime {
+     }
+   }
+ 
++  /** Probes run off the event loop; the TTL cache above keeps them rare. */
++  private async acpAvailability(backends: readonly { id: string, command?: string }[]): Promise<Record<string, boolean>> {
++    const entries = await Promise.all(backends.map(async item => [item.id, await backendCommandAvailable(item.id, item.command ?? '')] as const))
++    return Object.fromEntries(entries)
++  }
++
+   private async associations(config: Config): Promise<PluginSettingsView['associations']> {
+     if (config.serverUrl === undefined || !this.storageAvailable) return {}
+     const [host, client] = await Promise.all([
+@@ -710,28 +757,52 @@ export class PluginControlRuntime {
+   }
+ }
+ 
+-function backendCommandAvailable(backend: string, command: string): boolean {
+-  if (!command || typeof command !== 'string' || command.trim().length === 0) return false
++/**
++ * Probing a backend spawns `which`, which blocks the event loop; every settings
++ * read used to pay for it (2x per save on a two-backend profile). The answer only
++ * changes when the user installs a binary, so a short cache is enough.
++ */
++const COMMAND_AVAILABILITY_TTL_MS = 30_000
++const commandAvailability = new Map<string, { value: Promise<boolean>, at: number }>()
++
++/**
++ * Probing a backend spawns `which`. It used to run synchronously on every
++ * settings read, blocking the event loop (and the frame pump) for tens of
++ * milliseconds; now it runs off-thread and the answer is cached for a while.
++ */
++function backendCommandAvailable(backend: string, command: string): Promise<boolean> {
++  if (!command || typeof command !== 'string' || command.trim().length === 0) return Promise.resolve(false)
+   const trimmed = command.trim()
++  const cacheKey = `${backend}\u0000${trimmed}`
++  const now = Date.now()
++  const cached = commandAvailability.get(cacheKey)
++  if (cached !== undefined && now - cached.at < COMMAND_AVAILABILITY_TTL_MS) return cached.value
++  const value = probeBackendCommand(backend, trimmed)
++  commandAvailability.set(cacheKey, { value, at: now })
++  return value
++}
++
++async function probeBackendCommand(backend: string, trimmed: string): Promise<boolean> {
+   if (defaultCheckExecutable(trimmed)) return true
+   const candidates = backend === 'codex' ? codexBinaryCandidates(trimmed)
+     : backend === 'cursor' || backend === 'antigravity' || backend === 'opencode' ? cursorBinaryCandidates(trimmed) : [trimmed]
+-  return candidates.some(candidate => defaultCheckExecutable(candidate) || commandAvailable(candidate))
++  for (const candidate of candidates) {
++    if (defaultCheckExecutable(candidate)) return true
++    if (await commandAvailable(candidate)) return true
++  }
++  return false
+ }
+ 
+-function commandAvailable(command: string): boolean {
++async function commandAvailable(command: string): Promise<boolean> {
+   try {
+-    execFileSync(process.platform === 'win32' ? 'where' : 'which', [command], {
+-      stdio: 'ignore',
+-      timeout: 5000,
+-    })
++    await execFileAsync(process.platform === 'win32' ? 'where' : 'which', [command], { timeout: 5000 })
+     return true
+   } catch {
+     return false
+   }
+ }
+ 
+-function editableConfig(config: ResolvedConfig): Config {
++export function editableConfig(config: ResolvedConfig): Config {
+   return {
+     enabled: config.enabled,
+     role: config.role,
+@@ -744,6 +815,7 @@ function editableConfig(config: ResolvedConfig): Config {
+     loopback: config.loopback,
+     forceRelay: config.forceRelay,
+     logLevel: config.logLevel,
++    liteMode: config.liteMode,
+     reconnect: config.reconnect.enabled
+       ? {
+           initialDelayMs: config.reconnect.initialDelayMs,
+diff --git a/packages/plugin/src/harness-remote-bridge.ts b/packages/plugin/src/harness-remote-bridge.ts
+index 4041c81..73616f8 100644
+--- a/packages/plugin/src/harness-remote-bridge.ts
++++ b/packages/plugin/src/harness-remote-bridge.ts
+@@ -1,4 +1,5 @@
+ import { compactHistory } from './compact-history.js'
++import { applyLiteMode, isLiteModeEnabled } from './lite-mode.js'
+ import { randomUUID } from 'node:crypto'
+ import { homedir } from 'node:os'
+ import { lstat, realpath, stat } from 'node:fs/promises'
+@@ -314,7 +315,7 @@ export class HarnessRemoteBridge {
+     if (TERMINAL_STREAMS.has(params.endpoint)) throw new RpcError('METHOD_NOT_ALLOWED', 'Use a stream for this terminal endpoint.')
+     if (['settings/update', 'settings/replace', 'settings/mutate'].includes(params.endpoint)) {
+       const args = requestArgs(params.payload)
+-      if (args.ns === 'ds-harness-remote' || args.ns === 'dsh-remote') {
++      if (args.ns === 'ds-harness-remote-fast' || args.ns === 'ds-harness-remote' || args.ns === 'dsh-remote') {
+         throw new RpcError('PERMISSION_DENIED', 'Remote access settings can only be changed locally on the Host.')
+       }
+     }
+@@ -710,12 +711,30 @@ export class HarnessRemoteBridge {
+     try {
+       for await (const value of source) {
+         if (signal.aborted) break
+-        const frame: HarnessRemoteFrameData = {
++        let frame: HarnessRemoteFrameData = {
+           streamId,
+           hasValue: true,
+-          ...(value === undefined ? {} : { value: historyFollow && this.compactHistoryEnabled && isCompactSnapshot(value) ? compactHistory(value) : value }),
++          ...(value === undefined ? {} : { value: historyFollow && (this.compactHistoryEnabled || isLiteModeEnabled()) && isCompactSnapshot(value) ? compactHistory(value) : value }),
+         }
+-        if (encodeMessage(createEvent('harness.remote.frame', frame)).byteLength > MAX_SECURE_MESSAGE_BYTES) {
++        if (isLiteModeEnabled()) {
++          const shaped = applyLiteMode(frame) as HarnessRemoteFrameData | undefined
++          if (shaped === undefined) continue
++          frame = shaped
++        }
++        const encoded = encodeMessage(createEvent('harness.remote.frame', frame))
++        const bytes = encoded.byteLength
++        // Peak-only telemetry: fast mode is usually visible here, and logging
++        // every small frame would drown the log.
++        if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
++          const value = isJsonRecord(frame.value) ? frame.value : undefined
++          this.logger?.info('outbound frame', {
++            type: typeof value?.type === 'string' ? value.type : 'unknown',
++            bytes,
++            lite: isLiteModeEnabled(),
++            transferFrames,
++          })
++        }
++        if (bytes > MAX_SECURE_MESSAGE_BYTES) {
+           if (!transferFrames) throw new Error('Oversized Harness Remote frame')
+           await this.transferStreamFrame(frame, signal)
+         } else {
+@@ -1305,6 +1324,10 @@ function needsDirectoryFallback(result: TypertRpcResult): boolean {
+     || message.includes('directory-picker-unavailable')
+ }
+ 
++/** Frames at or above this size are logged so an A/B run is measurable. */
++const FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024
++
++
+ const SESSION_PROJECTION_WHITELIST = new Set([
+   'permissions',
+   'remoteStatusKnown',
+@@ -1455,7 +1478,7 @@ export function filterSessionListProjections(
+ function filterRemotePluginInventory(endpoint: string, result: TypertRpcResult): TypertRpcResult {
+   if (!result.ok) return result
+   const isRemote = (value: unknown): boolean => typeof value === 'string'
+-    && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
++    && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
+   const filterEntries = (entries: unknown[]): unknown[] => entries.filter(entry =>
+     !isRecord(entry) || !isRemote(entry.moduleName))
+   if (endpoint === 'pluginManager/listPlugins' && Array.isArray(result.value)) {
+@@ -1494,7 +1517,7 @@ function isCompactSnapshot(value: unknown): boolean {
+ /** Whether one official plugin-manager row belongs to this Remote plugin or its bundle. */
+ function remoteOwnedBundleRow(row: Record<string, unknown>, plugin: boolean): boolean {
+   const remoteModule = (value: unknown): boolean => typeof value === 'string'
+-    && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
++    && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
+   if (remoteModule(plugin ? row.moduleName : row.name)) return true
+   return !plugin && (!Array.isArray(row.rows)
+     || row.rows.some(value => !isRecord(value) || remoteModule(value.moduleName))
+diff --git a/packages/plugin/src/index.ts b/packages/plugin/src/index.ts
+index 759122b..0629349 100644
+--- a/packages/plugin/src/index.ts
++++ b/packages/plugin/src/index.ts
+@@ -32,6 +32,8 @@ import { TypertGatewaySwitch } from './typert-gateway-switch.js'
+ import type { FileViewerHostServiceLike } from './file-viewer-bridge.js'
+ import { createPluginRouteDispatcher, type PluginRouteConnectionLike } from './plugin-route-dispatcher.js'
+ import { installRemoteDiscoveryTools } from './remote-tools.js'
++import { editableConfig } from './control-runtime.js'
++import { setLiteModeEnabled } from './lite-mode.js'
+ import { runHmrSafe, type HmrContextLike } from './hmr-safe-settings.js'
+ import { PluginUpdateChecker } from './update-check.js'
+ import { assertRemoteEventSource } from './tui-event-source.js'
+@@ -50,7 +52,7 @@ declare module '@deepseek-ai/cordis' {
+   }
+ }
+ 
+-export const name = 'ds-harness-remote'
++export const name = 'ds-harness-remote-fast'
+ export { Config }
+ 
+ // The unscoped dsh-remote package belongs to another publisher. A bare name
+@@ -463,7 +465,17 @@ async function activate(
+       await runtime?.close()
+     }
+   }, 'ds-harness-remote lifecycle')
+-  if (config.remoteTools?.enabled) installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? undefined : clientRuntime)
++  if (config.remoteTools?.enabled) {
++    installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? undefined : clientRuntime, settingsBinding === undefined ? undefined : {
++      fastMode: () => resolveConfig(readConfig()).liteMode === true,
++      setFastMode: async (enabled: boolean) => {
++        const current = editableConfig(resolveConfig(readConfig()))
++        await settingsBinding.replace({ ...current, liteMode: enabled })
++        setLiteModeEnabled(enabled)
++        return enabled
++      },
++    })
++  }
+ }
+ 
+ /**
+diff --git a/packages/plugin/src/lite-mode.ts b/packages/plugin/src/lite-mode.ts
+new file mode 100644
+index 0000000..82330f5
+--- /dev/null
++++ b/packages/plugin/src/lite-mode.ts
+@@ -0,0 +1,129 @@
++/**
++ * Lite mode: shrink what a remote client receives on first paint.
++ *
++ * Large sessions make the initial `snapshot` frame megabytes wide (hundreds of
++ * records plus per-session projections such as the context-lens panel). Clients
++ * that cannot chunk a frame (`transferFrames: false`, e.g. the web client) hit
++ * "Oversized Harness Remote frame" and the whole connection drops. Lite mode
++ * keeps the frame small instead:
++ *
++ * - `records` is trimmed to the newest few entries (the client still sees
++ *   `hasMore: true`, so it can page back for older ones),
++ * - projections above {@link LITE_PROJECTION_MAX_BYTES} are dropped, while a
++ *   small keep-list of projections the UI needs to render survives regardless.
++ *
++ * Only data sent over the wire is affected; the session store and the agent
++ * context are untouched.
++ */
++
++/** Projections the client needs to render its chrome; always kept. */
++export const LITE_PROJECTION_KEEP_KEYS: ReadonlySet<string> = new Set([
++  'title',
++  'modelSelection',
++  'permissions',
++  'sessionListMetadata',
++  'imageLimits',
++])
++
++/** Projections larger than this many bytes are dropped in lite mode. */
++export const LITE_PROJECTION_MAX_BYTES = 16 * 1024
++
++/**
++ * Total budget for one frame's projections. Individual entries can be small and
++ * still add up (dozens of sessions in one baseline), so the frame is capped.
++ */
++export const LITE_PROJECTION_BUDGET_BYTES = 256 * 1024
++
++/** How many records the initial history page keeps in lite mode. */
++export const LITE_HISTORY_RECORDS = 10
++
++/**
++ * Process-wide switch, mirroring how the plugin wires other runtime flags: the Host
++ * and its bridges live in one process, so a single module-level value is enough and
++ * a toggle applies to the next frame instead of requiring a reconnect.
++ */
++let enabled = false
++
++/** Whether lite mode is currently on. */
++export function isLiteModeEnabled(): boolean {
++  return enabled
++}
++
++/** Flip lite mode for subsequent frames. */
++export function setLiteModeEnabled(next: boolean): void {
++  enabled = next === true
++}
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === 'object' && value !== null && !Array.isArray(value)
++}
++
++function sizeOf(value: unknown): number {
++  try {
++    return Buffer.byteLength(JSON.stringify(value))
++  } catch {
++    return Number.POSITIVE_INFINITY
++  }
++}
++
++/**
++ * Keep the render-critical projections, then the smallest of the rest while the
++ * frame stays under {@link LITE_PROJECTION_BUDGET_BYTES}.
++ */
++export function filterLiteProjections(projections: unknown): unknown {
++  if (!isRecord(projections)) return projections
++  const kept: Record<string, unknown> = {}
++  const candidates: Array<{ key: string, value: unknown, size: number }> = []
++  let used = 0
++  for (const [key, value] of Object.entries(projections)) {
++    const size = sizeOf(value)
++    if (LITE_PROJECTION_KEEP_KEYS.has(key)) {
++      kept[key] = value
++      used += size
++      continue
++    }
++    if (size <= LITE_PROJECTION_MAX_BYTES) candidates.push({ key, value, size })
++  }
++  candidates.sort((left, right) => left.size - right.size)
++  for (const { key, value, size } of candidates) {
++    if (used + size > LITE_PROJECTION_BUDGET_BYTES) break
++    kept[key] = value
++    used += size
++  }
++  return kept
++}
++
++/**
++ * Apply lite-mode shaping to one history frame.
++ * @returns the (possibly rewritten) frame, or `undefined` when the whole frame
++ *   should be skipped because it carries only a dropped projection.
++ */
++export function applyLiteMode(frame: unknown): unknown {
++  if (!isRecord(frame) || !isRecord(frame.value)) return frame
++  const layer = frame.value
++  if (layer.type === 'baseline' && isRecord(layer.value)) {
++    const inner = layer.value
++    if (!isRecord(inner.projections)) return frame
++    const projections: Record<string, unknown> = {}
++    for (const [sessionId, blob] of Object.entries(inner.projections)) {
++      projections[sessionId] = isRecord(blob) ? filterLiteProjections(blob) : blob
++    }
++    return { ...frame, value: { ...layer, value: { ...inner, projections } } }
++  }
++  if (layer.type === 'snapshot') {
++    // The snapshot payload is either the layer itself or nested under `value`,
++    // depending on the backend that produced it.
++    const nested = isRecord(layer.value)
++    const inner: Record<string, unknown> = { ...(nested ? (layer.value as Record<string, unknown>) : layer) }
++    if (Array.isArray(inner.records) && inner.records.length > LITE_HISTORY_RECORDS) {
++      inner.records = inner.records.slice(-LITE_HISTORY_RECORDS)
++      inner.hasMore = true
++    }
++    if (isRecord(inner.projections) && isRecord(inner.projections.values)) {
++      inner.projections = { ...inner.projections, values: filterLiteProjections(inner.projections.values) }
++    }
++    return { ...frame, value: nested ? { ...layer, value: inner } : inner }
++  }
++  if (layer.type === 'projection' && sizeOf(layer.value) > LITE_PROJECTION_MAX_BYTES) return undefined
++  return frame
++}
+diff --git a/packages/plugin/src/relay-preference.ts b/packages/plugin/src/relay-preference.ts
+new file mode 100644
+index 0000000..4be7a89
+--- /dev/null
++++ b/packages/plugin/src/relay-preference.ts
+@@ -0,0 +1,33 @@
++/**
++ * Relay preference ("force relay"): the data plane skips LAN, internet-direct
++ * (P2P) and TURN probing and goes straight to the encrypted relay.
++ *
++ * Why a runtime switch instead of reading the config every time: the Host
++ * advertises its transport capabilities when it dials the Server, and the
++ * Client walks its attempt list per connection. Both read this process-wide
++ * flag so a toggle applies without rebuilding the plugin, mirroring
++ * {@link ./lite-mode.ts}. Seeded from `config.forceRelay` at startup; the
++ * config keeps working for users who set it statically.
++ */
++
++import type { TransportAttempt } from './client-runtime-contract.js'
++
++let enabled = false
++
++/** Whether the relay-only preference is currently on. */
++export function isForceRelayEnabled(): boolean {
++  return enabled
++}
++
++/** Flip the relay-only preference for subsequent connections. */
++export function setForceRelayEnabled(next: boolean): void {
++  enabled = next === true
++}
++
++/**
++ * Attempts a Client walks when connecting. A Host without a usable WebRTC
++ * backend can only relay, so both cases collapse to a single attempt.
++ */
++export function transportAttempts(forceRelay: boolean, rtcAvailable: boolean): TransportAttempt[] {
++  return forceRelay || !rtcAvailable ? ['relay'] : ['direct', 'turn', 'relay']
++}
+diff --git a/packages/plugin/src/remote-tools.ts b/packages/plugin/src/remote-tools.ts
+index c68746c..4d5b2b2 100644
+--- a/packages/plugin/src/remote-tools.ts
++++ b/packages/plugin/src/remote-tools.ts
+@@ -151,10 +151,42 @@ export function remoteSessionTools(resolve: () => Pick<ClientModeRuntime, 'runSe
+   }))
+ }
+ 
+-export function installRemoteDiscoveryTools(ctx: Context, resolve: () => ClientModeRuntime | undefined): void {
++/** Host-local switches the local agent may flip on the user's behalf. */
++/** Host-local switches the local agent may flip on the user's behalf. */
++export interface RemoteLocalSwitches {
++  /** Persist and apply fast (lite) mode; resolves to the new state. */
++  setFastMode(enabled: boolean): Promise<boolean>
++  fastMode(): boolean
++}
++
++/** Agent tool for the Host-side fast-mode switch (no remote host involved). */
++export function localSwitchTools(switches: RemoteLocalSwitches): RemoteToolDefinition[] {
++  const input = z.object({ enabled: z.boolean() }).strict()
++  return [{
++    name: 'remote_fast_mode',
++    description: 'Turn this Host\'s fast mode (极速模式) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.',
++    parameters: object({ enabled: { type: 'boolean' } }, ['enabled']),
++    output: {
++      schema: object({ enabled: { type: 'boolean' } }, ['enabled']),
++      render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
++    },
++    execute: async (args: unknown) => ({ enabled: await switches.setFastMode(input.parse(args).enabled) }),
++  }]
++}
++
++export function installRemoteDiscoveryTools(
++  ctx: Context,
++  resolve: () => ClientModeRuntime | undefined,
++  switches?: RemoteLocalSwitches,
++): void {
+   ctx.inject(['tools'], toolContext => {
+     const tools = toolContext.get('tools') as { register(definition: RemoteToolDefinition): () => void }
+-    for (const definition of [...remoteDiscoveryTools(resolve), ...remoteSessionTools(resolve)]) {
++    const definitions = [
++      ...remoteDiscoveryTools(resolve),
++      ...remoteSessionTools(resolve),
++      ...(switches === undefined ? [] : localSwitchTools(switches)),
++    ]
++    for (const definition of definitions) {
+       toolContext.effect(() => tools.register(definition))
+     }
+   })
+diff --git a/packages/plugin/src/server-connection.ts b/packages/plugin/src/server-connection.ts
+index 00ce537..08c9a9e 100644
+--- a/packages/plugin/src/server-connection.ts
++++ b/packages/plugin/src/server-connection.ts
+@@ -44,6 +44,7 @@ import {
+   type RtcSignal,
+ } from '@dsh-remote/webrtc'
+ import type { ConnectionCloseDetail, ConnectionController } from './connection-controller.js'
++import { isForceRelayEnabled } from './relay-preference.js'
+ import type { ResolvedConfig } from './config.js'
+ import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
+ import type { SafeLogger } from './logging.js'
+@@ -90,6 +91,18 @@ interface PendingTunnel {
+ 
+ const DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12_000
+ 
++/**
++ * Transport capabilities the Host announces in `hello`. Relay-only wins when
++ * the operator forces the relay or when this Host has no WebRTC backend: the
++ * Server then never negotiates LAN/P2P/TURN for this device and the initiator
++ * has nothing to probe.
++ */
++export function advertisedTransportCapabilities(forceRelay: boolean, rtcAvailable: boolean): string[] {
++  return forceRelay || !rtcAvailable
++    ? ['transport.relay', 'transport.relay.attach']
++    : ['transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', 'transport.relay.attach']
++}
++
+ export class HostServerConnection {
+   private socket?: WebSocketLike
+   private forceCloseSocket?: (code: number, reason: string) => void
+@@ -245,9 +258,12 @@ export class HostServerConnection {
+   private async connectOnce(): Promise<void> {
+     const credentials = await this.api.authenticate(this.identity)
+     if (this.stopped) return
+-    const offeredCapabilities = this.rtcFactoryProvider === undefined || this.config.forceRelay
+-      ? [RELAY_RESUME_CAPABILITY, 'transport.relay', 'transport.relay.attach', ...this.hostCapabilities()]
+-      : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY, 'transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', 'transport.relay.attach', ...this.hostCapabilities()]
++    const forceRelay = isForceRelayEnabled() || this.config.forceRelay
++    const offeredCapabilities = [
++      ...(forceRelay || this.rtcFactoryProvider === undefined ? [RELAY_RESUME_CAPABILITY] : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY]),
++      ...advertisedTransportCapabilities(forceRelay, this.rtcFactoryProvider !== undefined),
++      ...this.hostCapabilities(),
++    ]
+     const recoveryTickets = [...this.tunnels.values()].flatMap(tunnel => tunnel.lease?.recoveryTicket() ?? []).slice(0, 64)
+     const socket = this.createWebSocket(websocketUrl(this.api.baseUrl))
+     this.socket = socket
+@@ -879,7 +895,7 @@ export class HostServerConnection {
+       this.logger.warn('duplicate webrtc offer ignored', { connectionId: shortId(tunnel.connectionId) })
+       return
+     }
+-    if (this.config.forceRelay) {
++    if (this.config.forceRelay || isForceRelayEnabled()) {
+       // Device-level forced degradation (webrtc plan §11).
+       this.logger.warn('webrtc offer ignored: forceRelay is enabled', { connectionId: shortId(tunnel.connectionId) })
+       return
+diff --git a/packages/plugin/src/service.ts b/packages/plugin/src/service.ts
+index 5276053..9e15cdb 100644
+--- a/packages/plugin/src/service.ts
++++ b/packages/plugin/src/service.ts
+@@ -5,6 +5,8 @@ import { workspaceUploadRootResolver } from './workspace-upload-authority.js'
+ import { LoopbackHost } from './loopback-host.js'
+ import { TerminalPolicy } from './terminal-policy.js'
+ import { createEvent, type RemoteWorkspaceTypeDescription } from '@dsh-remote/protocol'
++import { setLiteModeEnabled } from './lite-mode.js'
++import { setForceRelayEnabled } from './relay-preference.js'
+ import { ConnectionController } from './connection-controller.js'
+ import type { ResolvedConfig } from './config.js'
+ import type { HostIdentity, IdentityStore } from './identity-store.js'
+@@ -97,6 +99,8 @@ export class HostPluginRuntime {
+     private readonly schedule?: ScheduleCreateService,
+   ) {
+     this.terminalEnabled = config.terminal.enabled
++    setLiteModeEnabled(config.liteMode === true)
++    setForceRelayEnabled(config.forceRelay === true)
+     this.loopbackPorts = [...config.loopback.ports]
+     this.codex = new CodexRemoteDomain(config.codex, logger)
+     this.acp = new AcpRemoteGateway(config.acp ?? { enabled: false, backends: [] }, logger, undefined, undefined, () => this.terminalEnabled, this.terminalSpawner)
+diff --git a/packages/plugin/tests/client-runtime.test.ts b/packages/plugin/tests/client-runtime.test.ts
+index cc1edaf..cf361eb 100644
+--- a/packages/plugin/tests/client-runtime.test.ts
++++ b/packages/plugin/tests/client-runtime.test.ts
+@@ -1585,6 +1585,7 @@ function config(): ResolvedConfig {
+     forceRelay: false,
+     rotatePinnedPeerKey: false,
+     logLevel: 'error',
++    liteMode: false,
+     reconnect: { enabled: true, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
+     codex: { enabled: false, binary: 'codex' },
+     cursor: { enabled: false, binary: 'agent' },
+diff --git a/packages/plugin/tests/control-runtime.test.ts b/packages/plugin/tests/control-runtime.test.ts
+index f0499a4..858b222 100644
+--- a/packages/plugin/tests/control-runtime.test.ts
++++ b/packages/plugin/tests/control-runtime.test.ts
+@@ -134,6 +134,35 @@ describe('PluginControlRuntime settings setup', () => {
+     expect(apply.mock.calls[0]?.[0].codex.enabled).toBe(true)
+   })
+ 
++  it('reads back the lite mode switch and keeps it across unrelated saves', async () => {
++    const directory = await temporaryDirectory()
++    const settings = settingsBinding({})
++    const handler = register(new PluginControlRuntime(resolveConfig(settings.get()), directory, settings, undefined, undefined))
++    await expect(handler('settings.lite.set', { enabled: true }, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { liteMode: true } } })
++    await expect(handler('settings.get', {}, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { liteMode: true } } })
++    await expect(handler('settings.development.set', { terminalEnabled: false }, signal()))
++      .resolves.toMatchObject({ ok: true })
++    expect(settings.get().liteMode).toBe(true)
++  })
++
++  it('persists and reports the force-relay preference', async () => {
++    const directory = await temporaryDirectory()
++    const settings = settingsBinding({})
++    const handler = register(new PluginControlRuntime(resolveConfig(settings.get()), directory, settings, undefined, undefined))
++    await expect(handler('settings.forceRelay.set', { enabled: true }, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { forceRelay: true }, applies: 'live' } })
++    expect(settings.get().forceRelay).toBe(true)
++    await expect(handler('settings.get', {}, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { forceRelay: true } } })
++    await expect(handler('settings.forceRelay.set', { enabled: 'yes' }, signal()))
++      .resolves.toMatchObject({ ok: false, error: { details: { remoteCode: 'INVALID_MESSAGE' } } })
++    await expect(handler('settings.forceRelay.set', { enabled: false }, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { forceRelay: false } } })
++    expect(settings.get().forceRelay).toBe(false)
++  })
++
+   it('coexists with a Remote Web UI that already owns /remote', async () => {
+     const channels = new Set(['/remote'])
+     const connection = {
+diff --git a/packages/plugin/tests/lite-mode.test.ts b/packages/plugin/tests/lite-mode.test.ts
+new file mode 100644
+index 0000000..9212a3e
+--- /dev/null
++++ b/packages/plugin/tests/lite-mode.test.ts
+@@ -0,0 +1,52 @@
++import { describe, expect, it } from 'vitest'
++import { resolveConfig } from '../src/config.js'
++import {
++  LITE_HISTORY_RECORDS,
++  LITE_PROJECTION_BUDGET_BYTES,
++  LITE_PROJECTION_MAX_BYTES,
++  applyLiteMode,
++  filterLiteProjections,
++} from '../src/lite-mode.js'
++
++const snapshot = (records: number, projections: Record<string, unknown> = {}) => ({
++  streamId: 'stream',
++  hasValue: true,
++  value: { type: 'snapshot', records: Array.from({ length: records }, (_, index) => ({ seq: index })), projections },
++})
++
++describe('lite mode', () => {
++  it('is on by default and can be turned off explicitly', () => {
++    expect(resolveConfig({}).liteMode).toBe(true)
++    expect(resolveConfig({ liteMode: false }).liteMode).toBe(false)
++    expect(resolveConfig({ liteMode: true }).liteMode).toBe(true)
++  })
++
++  it('keeps only the newest history page and reports hasMore', () => {
++    const shaped = applyLiteMode(snapshot(40)) as { value: { records: unknown[], hasMore: boolean } }
++    expect(shaped.value.records).toHaveLength(LITE_HISTORY_RECORDS)
++    expect(shaped.value.records.at(-1)).toEqual({ seq: 39 })
++    expect(shaped.value.hasMore).toBe(true)
++  })
++
++  it('drops oversized projections but keeps the render-critical ones', () => {
++    const projections = filterLiteProjections({
++      title: { text: 'x'.repeat(LITE_PROJECTION_MAX_BYTES * 2) },
++      contextLens: { requests: Array.from({ length: 500 }, () => 'y'.repeat(64)) },
++      smallPanel: { ok: true },
++    }) as Record<string, unknown>
++    expect(Object.keys(projections).sort()).toEqual(['smallPanel', 'title'])
++  })
++
++  it('bounds the total projection payload even when every entry is small', () => {
++    const projections = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`panel${index}`, 'z'.repeat(12 * 1024)]))
++    const kept = filterLiteProjections(projections) as Record<string, unknown>
++    const total = Buffer.byteLength(JSON.stringify(kept))
++    expect(Object.keys(kept).length).toBeLessThan(64)
++    expect(total).toBeLessThanOrEqual(LITE_PROJECTION_BUDGET_BYTES)
++  })
++
++  it('skips a projection frame that would only carry dropped data', () => {
++    expect(applyLiteMode({ streamId: 's', hasValue: true, value: { type: 'projection', value: 'q'.repeat(LITE_PROJECTION_MAX_BYTES * 2) } })).toBeUndefined()
++    expect(applyLiteMode({ streamId: 's', hasValue: true, value: { type: 'projection', value: { ok: true } } })).toBeDefined()
++  })
++})
+diff --git a/packages/plugin/tests/multi-client-runtime.test.ts b/packages/plugin/tests/multi-client-runtime.test.ts
+index 0aaf7d1..ac6d516 100644
+--- a/packages/plugin/tests/multi-client-runtime.test.ts
++++ b/packages/plugin/tests/multi-client-runtime.test.ts
+@@ -519,6 +519,7 @@ function config(): ResolvedConfig {
+     forceRelay: true,
+     rotatePinnedPeerKey: false,
+     logLevel: 'error',
++    liteMode: false,
+     reconnect: { enabled: false, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
+     codex: { enabled: false, binary: 'codex' },
+     cursor: { enabled: false, binary: 'agent' },
+diff --git a/packages/plugin/tests/relay-preference.test.ts b/packages/plugin/tests/relay-preference.test.ts
+new file mode 100644
+index 0000000..e4f5658
+--- /dev/null
++++ b/packages/plugin/tests/relay-preference.test.ts
+@@ -0,0 +1,40 @@
++import { describe, expect, it } from 'vitest'
++import { advertisedTransportCapabilities } from '../src/server-connection.js'
++import {
++  isForceRelayEnabled,
++  setForceRelayEnabled,
++  transportAttempts,
++} from '../src/relay-preference.js'
++
++describe('force relay', () => {
++  it('collapses the attempt list to relay', () => {
++    expect(transportAttempts(true, true)).toEqual(['relay'])
++    expect(transportAttempts(false, true)).toEqual(['direct', 'turn', 'relay'])
++    // No WebRTC backend on this Host: relay is the only option anyway.
++    expect(transportAttempts(false, false)).toEqual(['relay'])
++  })
++
++  it('advertises relay-only capabilities to the Server', () => {
++    expect(advertisedTransportCapabilities(true, true)).toEqual(['transport.relay', 'transport.relay.attach'])
++    expect(advertisedTransportCapabilities(false, false)).toEqual(['transport.relay', 'transport.relay.attach'])
++    expect(advertisedTransportCapabilities(false, true)).toEqual([
++      'transport.lan',
++      'transport.p2p',
++      'transport.turn',
++      'transport.relay',
++      'transport.relay.attach',
++    ])
++  })
++
++  it('flips the process-wide preference', () => {
++    const original = isForceRelayEnabled()
++    try {
++      setForceRelayEnabled(true)
++      expect(isForceRelayEnabled()).toBe(true)
++      setForceRelayEnabled(false)
++      expect(isForceRelayEnabled()).toBe(false)
++    } finally {
++      setForceRelayEnabled(original)
++    }
++  })
++})
+diff --git a/packages/plugin/tests/server-connection.test.ts b/packages/plugin/tests/server-connection.test.ts
+index 10f5a80..0c60c70 100644
+--- a/packages/plugin/tests/server-connection.test.ts
++++ b/packages/plugin/tests/server-connection.test.ts
+@@ -1349,6 +1349,7 @@ function config(): ResolvedConfig {
+     forceRelay: true,
+     rotatePinnedPeerKey: false,
+     logLevel: 'error',
++    liteMode: false,
+     reconnect: { enabled: false, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
+     codex: { enabled: false, binary: 'codex' },
+     cursor: { enabled: false, binary: 'agent' },
+-- 
+2.56.0
+
