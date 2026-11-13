@@ -21,6 +21,7 @@ import {
   websocketUrl,
 } from './client-runtime-contract.js'
 import { ClientSecureTransport } from './client-secure-transport.js'
+import { isForceRelayEnabled, transportAttempts } from './relay-preference.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
@@ -45,6 +46,8 @@ export class ClientConnection {
 
   async connect(targetDeviceId: string, signal?: AbortSignal, options: { background?: boolean } = {}): Promise<ConnectedRemote> {
     signal?.throwIfAborted()
+    // Runtime toggle wins over the value captured when the plugin was built.
+    const forceRelay = isForceRelayEnabled() || this.context.config.forceRelay
     const progressRunId = options.background ? -1 : this.context.connectionProgressRun + 1
     if (!options.background) {
       this.context.connectionProgressRun = progressRunId
@@ -72,10 +75,10 @@ export class ClientConnection {
       if (!presence.online) throw new ClientModeError('HOST_OFFLINE', 'The selected Host is offline.', true)
       const credentials = await this.context.server.authenticate(identity)
       signal?.throwIfAborted()
-      const rtcFactory = this.context.config.forceRelay
+      const rtcFactory = forceRelay
         ? undefined
         : await this.context.rtcFactoryProvider({ routeTargets: [this.context.server.baseUrl] }).catch(() => undefined)
-      if (!this.context.config.forceRelay && rtcFactory === undefined) {
+      if (!forceRelay && rtcFactory === undefined) {
         this.context.logger.warn('remote Harness WebRTC backend unavailable; using relay', {
           targetDeviceId: shortId(target.deviceId),
         })
@@ -89,7 +92,7 @@ export class ClientConnection {
           accessToken: credentials.accessToken,
           refreshAccessToken: async () => (await this.context.server.authenticate(identity)).accessToken,
           targetDeviceId,
-          forceRelay: this.context.config.forceRelay || attempt === 'relay',
+          forceRelay: forceRelay || attempt === 'relay',
           preferredTransports: preferredTransportsForAttempt(attempt),
           negotiateTimeoutMs: attempt === 'direct' ? DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS : undefined,
           ...(rtcFactory === undefined || attempt === 'relay' ? {} : { rtcFactory }),
@@ -113,9 +116,7 @@ export class ClientConnection {
           },
         },
       )
-      const attempts: TransportAttempt[] = this.context.config.forceRelay || rtcFactory === undefined
-        ? ['relay']
-        : ['direct', 'turn', 'relay']
+      const attempts: TransportAttempt[] = transportAttempts(forceRelay, rtcFactory !== undefined)
       let transport: AdaptiveTransport | undefined
       for (const attempt of attempts) {
         webRtcFallback = false

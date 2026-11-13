@@ -1,6 +1,7 @@
 import { mountAccountEntry } from './account-entry.js'
 import { createHostPairingPanel } from './pairing.js'
 import { createServerNotice } from './server-notice.js'
+import { createFastModeSwitches } from './fast-mode-switches.js'
 import { renderBodyPortal } from './portal.js'
 import QRCode from 'qrcode'
 import type { Translate } from '../client-locale.js'
@@ -34,6 +35,7 @@ import type {
 export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalRenderer) {
   const ServerNotice = createServerNotice(React)
   const HostPairingPanel = createHostPairingPanel(React)
+  const FastModeSwitches = createFastModeSwitches(React)
   const RemoteProgressView = createRemoteProgressView(React)
 
   /**
@@ -1080,7 +1082,7 @@ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalR
     const updateNotice = updateInfo !== undefined && localUpdateAvailable
       ? t('updateAvailable', { latest: updateInfo.latestVersion, current: updateInfo.currentVersion })
       : undefined
-    const releasesUrl = 'https://github.com/liguobao/ds-harness-remote/releases'
+    const releasesUrl = 'https://github.com/rainow/ds-harness-remote-fast/releases'
     const canUpgradeInPlace = updateInfo?.upgrade === 'ready'
     const startLocalUpgrade = async (): Promise<void> => {
       if (!canUpgradeInPlace || updateInfo === undefined) return
@@ -1457,6 +1459,7 @@ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalR
                         onChange: (event: Event) => void setCurrentDeviceControl((event.target as HTMLInputElement).checked),
                       })) : null,
                     connectedMenu)),
+                React.createElement(FastModeSwitches, { control: props.control, t }),
                 React.createElement('div', {
                   className: `dshRemoteHostList${connectingHost === undefined ? '' : ' isCollapsed'}`,
                   'aria-busy': connectingHost === undefined ? undefined : true,

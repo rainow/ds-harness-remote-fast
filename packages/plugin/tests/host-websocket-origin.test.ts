@@ -383,6 +383,7 @@ function hostConnection(
       serverUrl: baseUrl,
       deviceName: 'Host',
       forceRelay: true,
+      liteMode: true,
       rotatePinnedPeerKey: false,
       logLevel: 'error',
       reconnect: reconnect ?? { enabled: false, initialDelayMs: 10, maxDelayMs: 20, jitter: 0 },
