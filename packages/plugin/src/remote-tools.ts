@@ -151,10 +151,42 @@ export function remoteSessionTools(resolve: () => Pick<ClientModeRuntime, 'runSe
   }))
 }
 
-export function installRemoteDiscoveryTools(ctx: Context, resolve: () => ClientModeRuntime | undefined): void {
+/** Host-local switches the local agent may flip on the user's behalf. */
+/** Host-local switches the local agent may flip on the user's behalf. */
+export interface RemoteLocalSwitches {
+  /** Persist and apply fast (lite) mode; resolves to the new state. */
+  setFastMode(enabled: boolean): Promise<boolean>
+  fastMode(): boolean
+}
+
+/** Agent tool for the Host-side fast-mode switch (no remote host involved). */
+export function localSwitchTools(switches: RemoteLocalSwitches): RemoteToolDefinition[] {
+  const input = z.object({ enabled: z.boolean() }).strict()
+  return [{
+    name: 'remote_fast_mode',
+    description: 'Turn this Host\'s fast mode (极速模式) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.',
+    parameters: object({ enabled: { type: 'boolean' } }, ['enabled']),
+    output: {
+      schema: object({ enabled: { type: 'boolean' } }, ['enabled']),
+      render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
+    },
+    execute: async (args: unknown) => ({ enabled: await switches.setFastMode(input.parse(args).enabled) }),
+  }]
+}
+
+export function installRemoteDiscoveryTools(
+  ctx: Context,
+  resolve: () => ClientModeRuntime | undefined,
+  switches?: RemoteLocalSwitches,
+): void {
   ctx.inject(['tools'], toolContext => {
     const tools = toolContext.get('tools') as { register(definition: RemoteToolDefinition): () => void }
-    for (const definition of [...remoteDiscoveryTools(resolve), ...remoteSessionTools(resolve)]) {
+    const definitions = [
+      ...remoteDiscoveryTools(resolve),
+      ...remoteSessionTools(resolve),
+      ...(switches === undefined ? [] : localSwitchTools(switches)),
+    ]
+    for (const definition of definitions) {
       toolContext.effect(() => tools.register(definition))
     }
   })
