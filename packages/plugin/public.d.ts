@@ -9,6 +9,8 @@ export interface Config {
   loopback?: { ports?: number[] }
   forceRelay?: boolean
   logLevel?: 'debug' | 'info' | 'warn' | 'error'
+  /** Fast mode: trim what a remote client receives. Defaults to true. */
+  liteMode?: boolean
   reconnect?: boolean | {
     initialDelayMs?: number
     maxDelayMs?: number
@@ -20,7 +22,7 @@ export interface Config {
   }
 }
 
-export declare const name: 'ds-harness-remote'
+export declare const name: 'ds-harness-remote-fast'
 export declare const Config: unknown
 export declare function apply(ctx: Context, config?: Config | Volatile<Config>): void
 export declare function runCli(args?: readonly string[]): Promise<number>
