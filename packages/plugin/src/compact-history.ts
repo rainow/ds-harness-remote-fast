@@ -17,6 +17,9 @@ const TOOL_EVENT_TYPES = new Set([
   'tool/code-dispatch',
   'tool/code-dispatch-start',
 ])
+/** Tools whose result the client renders as an in-chat card: the component tree lives in
+ *  `arguments`, and `meta` decides whether the card is rendered at all. */
+const UI_TOOL_NAMES = new Set(['ui_render', 'ui_patch', 'ui_render_widget', 'ui_compose'])
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 type Budget = { remaining: number }
@@ -36,18 +39,32 @@ function summary(value: unknown, budget: Budget): string {
   return preservedRound(text, budget) ?? text.slice(0, LIMIT) + MARKER
 }
 
-function toolValue(value: unknown, budget: Budget): unknown {
-  if (Array.isArray(value)) return value.map(item => toolValue(item, budget))
+function toolValue(value: unknown, budget: Budget, keepUiPayload = false): unknown {
+  if (Array.isArray(value)) return value.map(item => toolValue(item, budget, keepUiPayload))
   if (!object(value)) return value
   const result: Record<string, unknown> = { ...value }
+  const toolName = typeof value.name === 'string' ? value.name
+    : typeof value.toolName === 'string' ? value.toolName : undefined
+  const keepUi = keepUiPayload || (toolName !== undefined && UI_TOOL_NAMES.has(toolName))
   for (const [key, child] of Object.entries(value)) {
-    if (['input', 'arguments', 'output', 'result', 'rawInput', 'rawOutput', 'uiResultMeta', 'meta', 'argumentsDelta', 'code'].includes(key)) {
-      result[key] = typeof child === 'string' ? summary(child, budget) : { summary: summary(child, budget) }
+    if (key === 'meta' || key === 'uiResultMeta') {
+      // The client renders an in-chat card only when `meta.ok` / `meta.ui` survive intact;
+      // wrapping this object in `{ summary }` silently drops the whole card.
+      result[key] = child
+    } else if (['input', 'arguments', 'output', 'result', 'rawInput', 'rawOutput', 'argumentsDelta', 'code'].includes(key)) {
+      // A UI tool's component tree is its arguments: truncating or wrapping them makes the
+      // client's JSON.parse fail, so keep them byte-exact for those tools only.
+      if (keepUi && (key === 'arguments' || key === 'argumentsDelta' || key === 'input')) result[key] = child
+      else result[key] = typeof child === 'string' ? summary(child, budget) : { summary: summary(child, budget) }
     } else if (key === 'content' && Array.isArray(child)) {
       let previews = 0
       const blocks = child.flatMap(block => {
         // Keep every tool correlation block, even when several share a message.
         if (object(block) && (block.type === 'tool-call' || block.type === 'tool-result')) return [toolValue(block, budget)]
+        // An image/file block carries only an attachment reference: flattening it
+        // to `{ summary }` text both loses the image and leaks a truncated JSON
+        // blob into the transcript, so keep the block intact.
+        if (object(block) && ['image', 'file', 'audio', 'video'].includes(String(block.type))) return [block]
         const preview = object(block) ? block.text ?? block : block
         // A recognised group round is conversation content: keep it even when it
         // would fall outside the two-preview budget. Earlier previews already go

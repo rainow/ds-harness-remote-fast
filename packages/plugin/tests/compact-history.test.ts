@@ -326,3 +326,30 @@ describe('compact group round preservation', () => {
     await bridge.closeAll()
   })
 })
+
+describe('compact history attachment blocks', () => {
+  const attachment = { attachmentId: `sha256:${'a'.repeat(64)}`, mediaType: 'image/png', bytes: 101954, width: 860, height: 220, name: 'shot.png' }
+  it('keeps image blocks intact so remote clients can still resolve the attachment', () => {
+    const record = {
+      type: 'event',
+      event: {
+        type: 'tool/result', seq: 12,
+        data: {
+          callId: 'tool-img', turn: 1,
+          message: { source: { callId: 'tool-img' }, content: [
+            { type: 'tool-result', toolCallId: 'tool-img', content: [
+              { type: 'text', text: 'ok\n' },
+              { type: 'image', attachment },
+            ] },
+          ] },
+        },
+      },
+      view: { for: 'result', view: { title: 'browser_screenshot' } },
+    }
+    const result = compactHistory({ cursor: 12, throughSeq: 12, hasMore: false, records: [record] })
+    const content = (result.records[0] as typeof record).event.data.message.content as unknown as { type: string; content: unknown[] }[]
+    const blocks = content[0]!.content as { type: string; attachment?: unknown }[]
+    expect(blocks.some(block => block.type === 'image')).toBe(true)
+    expect(blocks.find(block => block.type === 'image')!.attachment).toEqual(attachment)
+  })
+})

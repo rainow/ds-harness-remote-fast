@@ -39,6 +39,12 @@ export interface Config {
    */
   rotatePinnedPeerKey?: boolean
   logLevel?: 'debug' | 'info' | 'warn' | 'error'
+  /**
+   * Send remote clients only what they need: the initial history page keeps the latest
+   * few messages and oversized plugin projections are dropped. Cuts the first-paint
+   * payload from megabytes to kilobytes on large sessions. Default: false.
+   */
+  liteMode?: boolean
   reconnect?: boolean | {
     initialDelayMs?: number
     maxDelayMs?: number
@@ -90,6 +96,7 @@ export interface ResolvedConfig {
   detachedApprovalGraceSec?: number
   rotatePinnedPeerKey: boolean
   logLevel: 'debug' | 'info' | 'warn' | 'error'
+  liteMode: boolean
   reconnect: {
     enabled: boolean
     initialDelayMs: number
@@ -135,6 +142,7 @@ export const entryConfigSchema = s.object({
   detachedApprovalGraceSec: s.number(),
   rotatePinnedPeerKey: s.boolean(),
   logLevel: s.union(['debug', 'info', 'warn', 'error'] as const),
+  liteMode: s.boolean().default(true),
   reconnect: s.union([
     s.boolean(),
     s.object({
@@ -193,6 +201,7 @@ const configSchema = z.object({
   detachedApprovalGraceSec: z.number().finite().optional(),
   rotatePinnedPeerKey: z.boolean().optional(),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  liteMode: z.boolean().optional(),
   reconnect: reconnectSchema.optional(),
   codex: z.object({
     enabled: z.boolean().optional(),
@@ -242,6 +251,7 @@ export function resolveConfig(input: ConfigInput = {}, env: NodeJS.ProcessEnv = 
     detachedApprovalGraceSec: clampDetachedApprovalGraceSec(parsed.detachedApprovalGraceSec),
     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
     logLevel: parsed.logLevel ?? 'info',
+    liteMode: parsed.liteMode !== false,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,

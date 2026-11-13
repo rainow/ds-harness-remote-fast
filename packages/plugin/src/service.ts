@@ -13,6 +13,8 @@ import { resolveSessionWorkspaceRoot, workspaceUploadRootResolver } from './work
 import { LoopbackHost } from './loopback-host.js'
 import { TerminalPolicy } from './terminal-policy.js'
 import { createEvent, REMOTE_SESSION_EVENTS_CAPABILITY, type RemoteWorkspaceTypeDescription } from '@dsh-remote/protocol'
+import { setLiteModeEnabled } from './lite-mode.js'
+import { setForceRelayEnabled } from './relay-preference.js'
 import { ConnectionController } from './connection-controller.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore } from './identity-store.js'
@@ -125,6 +127,8 @@ export class HostPluginRuntime {
     attachmentHostPath?: (ref: MessageFileAttachment) => string | undefined,
   ) {
     this.terminalEnabled = config.terminal.enabled
+    setLiteModeEnabled(config.liteMode === true)
+    setForceRelayEnabled(config.forceRelay === true)
     this.loopbackPorts = [...config.loopback.ports]
     this.attention = new HostAttentionTracker({
       localGateway,

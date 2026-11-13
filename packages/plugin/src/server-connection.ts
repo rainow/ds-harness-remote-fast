@@ -51,6 +51,7 @@ import {
   type RtcSignal,
 } from '@dsh-remote/webrtc'
 import type { ConnectionCloseDetail, ConnectionController } from './connection-controller.js'
+import { isForceRelayEnabled } from './relay-preference.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
@@ -110,6 +111,18 @@ export function resolveWebRtcNegotiateTimeoutMs(hint: unknown): number {
     return DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS
   }
   return Math.min(MAX_WEBRTC_NEGOTIATE_TIMEOUT_MS, Math.max(MIN_WEBRTC_NEGOTIATE_TIMEOUT_MS, hint))
+}
+
+/**
+ * Transport capabilities the Host announces in `hello`. Relay-only wins when
+ * the operator forces the relay or when this Host has no WebRTC backend: the
+ * Server then never negotiates LAN/P2P/TURN for this device and the initiator
+ * has nothing to probe.
+ */
+export function advertisedTransportCapabilities(forceRelay: boolean, rtcAvailable: boolean): string[] {
+  return forceRelay || !rtcAvailable
+    ? ['transport.relay', 'transport.relay.attach']
+    : ['transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', 'transport.relay.attach']
 }
 
 export class HostServerConnection {
@@ -286,9 +299,13 @@ export class HostServerConnection {
   private async connectOnce(): Promise<void> {
     const credentials = await this.api.authenticate(this.identity)
     if (this.stopped) return
-    const offeredCapabilities = this.rtcFactoryProvider === undefined || this.config.forceRelay
-      ? [RELAY_RESUME_CAPABILITY, ATTENTION_SIGNAL_CAPABILITY, 'transport.relay', 'transport.relay.attach', ...this.hostCapabilities()]
-      : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY, ATTENTION_SIGNAL_CAPABILITY, 'transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', 'transport.relay.attach', ...this.hostCapabilities()]
+    const forceRelay = isForceRelayEnabled() || this.config.forceRelay
+    const offeredCapabilities = [
+      ...(forceRelay || this.rtcFactoryProvider === undefined ? [RELAY_RESUME_CAPABILITY] : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY]),
+      ATTENTION_SIGNAL_CAPABILITY,
+      ...advertisedTransportCapabilities(forceRelay, this.rtcFactoryProvider !== undefined),
+      ...this.hostCapabilities(),
+    ]
     const recoveryTickets = [...this.tunnels.values()].flatMap(tunnel => tunnel.lease?.recoveryTicket() ?? []).slice(0, 64)
     const socket = this.createWebSocket(websocketUrl(this.api.baseUrl))
     this.socket = socket
@@ -1003,7 +1020,7 @@ export class HostServerConnection {
       this.logger.warn('duplicate webrtc offer ignored', { connectionId: shortId(tunnel.connectionId) })
       return
     }
-    if (this.config.forceRelay) {
+    if (this.config.forceRelay || isForceRelayEnabled()) {
       // Device-level forced degradation (webrtc plan §11).
       this.logger.warn('webrtc offer ignored: forceRelay is enabled', { connectionId: shortId(tunnel.connectionId) })
       return

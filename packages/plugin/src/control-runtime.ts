@@ -1,7 +1,10 @@
 import { hostname } from 'node:os'
 import { existsSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
 import type { ControlResult } from './control-result.js'
+import { setLiteModeEnabled } from './lite-mode.js'
+import { setForceRelayEnabled } from './relay-preference.js'
 import { resolveConfig, type Config, type ConfigInput, type ResolvedConfig } from './config.js'
 import {
   ClientModeError,
@@ -31,6 +34,8 @@ import { isValidAcpBackendId } from './acp/method-policy.js'
 import { defaultCheckExecutable, installOrConfigureBackend, isBuiltinAcpBackend, lookupSystemPath } from './acp/backend-installer.js'
 import type { AcpAuthDiagnostic } from '@dsh-remote/protocol'
 import type { HostLogSnapshot, HostLogStore, PluginLogFilter } from './host-log-store.js'
+
+const execFileAsync = promisify(execFile)
 
 export interface PluginSettingsView {
   config: Config
@@ -171,6 +176,8 @@ export class PluginControlRuntime {
       }
       if (endpoint === 'settings.development.set') return ok(await this.setDevelopment(payload))
       if (endpoint === 'settings.appearance.set') return ok(await this.setAppearance(payload))
+      if (endpoint === 'settings.lite.set') return ok(await this.setLite(payload))
+      if (endpoint === 'settings.forceRelay.set') return ok(await this.setForceRelay(payload))
       if (endpoint === 'settings.get') return ok(await this.settingsView())
       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
       if (endpoint === 'settings.server.set') return ok(await this.setServer(payload))
@@ -427,6 +434,40 @@ export class PluginControlRuntime {
       return { ...await this.settingsView(), applies: 'live' }
     }
     return { ...await this.settingsView(), applies: this.startupFailure === undefined ? 'live' : 'restart' }
+  }
+
+  private async setLite(payload: unknown): Promise<PluginSettingsView> {
+    if (this.settings === undefined) {
+      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+    }
+    const enabled = record(payload).enabled
+    if (typeof enabled !== 'boolean') {
+      throw new ClientModeError('INVALID_MESSAGE', 'The lite mode switch must be a boolean.')
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()))
+    await this.settings.replace({ ...current, liteMode: enabled })
+    setLiteModeEnabled(enabled)
+    return { ...await this.settingsView(), applies: 'live' }
+  }
+
+  /**
+   * Relay-only preference. Applies to new connections; the Host re-dials the
+   * Server so its advertised capabilities (and the Server-side negotiation)
+   * drop LAN/P2P/TURN right away.
+   */
+  private async setForceRelay(payload: unknown): Promise<PluginSettingsView> {
+    if (this.settings === undefined) {
+      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+    }
+    const enabled = record(payload).enabled
+    if (typeof enabled !== 'boolean') {
+      throw new ClientModeError('INVALID_MESSAGE', 'The relay preference must be a boolean.')
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()))
+    await this.settings.replace({ ...current, forceRelay: enabled })
+    setForceRelayEnabled(enabled)
+    this.host?.reconnectHost()
+    return { ...await this.settingsView(), applies: 'live' }
   }
 
   private async setRole(payload: unknown): Promise<PluginSettingsView> {
@@ -847,7 +888,7 @@ function commandAvailable(command: string): boolean {
   }
 }
 
-function editableConfig(config: ResolvedConfig): Config {
+export function editableConfig(config: ResolvedConfig): Config {
   return {
     enabled: config.enabled,
     role: config.role,
@@ -861,6 +902,7 @@ function editableConfig(config: ResolvedConfig): Config {
     forceRelay: config.forceRelay,
     detachedApprovalGraceSec: config.detachedApprovalGraceSec,
     logLevel: config.logLevel,
+    liteMode: config.liteMode,
     reconnect: config.reconnect.enabled
       ? {
           initialDelayMs: config.reconnect.initialDelayMs,

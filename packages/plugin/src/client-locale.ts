@@ -335,6 +335,11 @@ export const en = {
   startSignIn: 'Start sign-in',
   allowControlCurrentDevice: 'Allow control of this device',
   allowControlDevice: 'Allow control of this device',
+  fastModeGroupTitle: 'Data saver & speed',
+  liteMode: 'Fast mode',
+  forceRelay: 'Force relay',
+  forceRelayHint: 'Skip LAN, internet-direct and TURN probing and connect straight through the encrypted relay. Faster first connection and reconnects, but all traffic goes through the server.',
+  liteModeHint: 'Send remote clients only what they need: the first history page keeps the latest 10 messages, tool details are compacted, and oversized plugin projections (such as the Context panel) are dropped, so that data is not available remotely. On by default; turn it off for the full history. Applies immediately. A remote client can ask the agent to flip it in chat, e.g. "turn on the fast mode switch of the ds-harness-remote-fast plugin".',
   connectedClientCount: '{count} connected',
   checkAcp: 'Check backend',
   checkingAcp: 'Checking ACP…',
@@ -735,6 +740,11 @@ export const zh: Record<keyof typeof en, string> = {
   startSignIn: '开始登录',
   allowControlCurrentDevice: '允许控制本机',
   allowControlDevice: '允许控制本机',
+  fastModeGroupTitle: '省流提速设置',
+  liteMode: '极速模式',
+  forceRelay: '强制中继',
+  forceRelayHint: '跳过局域网、互联网直连和 TURN 探测，直接走加密中继。首次连接与断线重连更快，但流量会经过服务器。',
+  liteModeHint: '只向远端推送必要数据：历史仅保留最近 10 条、工具详情做压缩，并丢弃体积较大的插件投影（如上下文面板），远端看不到这些插件数据。默认开启，关掉可获取完整历史。本开关切换后立即生效，远端访问可以在对话中要求 agent 打开或者关闭，比如「打开 ds-harness-remote-fast 插件的极速模式开关」。',
   connectedClientCount: '{count} 台已连接',
   checkAcp: '检测后端',
   checkingAcp: '正在检测 ACP…',
@@ -802,6 +812,11 @@ export const zh: Record<keyof typeof en, string> = {
 }
 
 export const ru: Record<keyof typeof en, string> = {
+  fastModeGroupTitle: 'Экономия трафика и скорость',
+  liteMode: 'Быстрый режим',
+  forceRelay: 'Только через ретранслятор',
+  forceRelayHint: 'Пропускать проверку LAN, прямого соединения и TURN и подключаться сразу через шифрованный ретранслятор. Первое подключение и переподключение быстрее, но весь трафик идёт через сервер.',
+  liteModeHint: 'Отправлять удалённым клиентам только необходимое: в первой странице истории остаются последние 10 сообщений, подробности инструментов сжимаются, крупные проекции плагинов (например, панель контекста) отбрасываются — удалённо этих данных не будет. Включено по умолчанию; отключите для полной истории. Применяется сразу.',
   serverSavedLive: 'Адрес сервера сохранён и применён.',
   saveServerBeforeLogin: 'Сохраните адрес сервера, прежде чем продолжить вход или сопряжение.',
   pairingLoginTab: 'DSH Go',
@@ -1202,6 +1217,11 @@ export const ru: Record<keyof typeof en, string> = {
 }
 
 export const uk: Record<keyof typeof en, string> = {
+  fastModeGroupTitle: 'Економія трафіку та швидкість',
+  liteMode: 'Швидкий режим',
+  forceRelay: 'Лише через ретранслятор',
+  forceRelayHint: 'Пропускати перевірку LAN, прямого зʼєднання й TURN і підключатися одразу через зашифрований ретранслятор. Перше підключення та перепідключення швидші, але весь трафік іде через сервер.',
+  liteModeHint: 'Надсилати віддаленим клієнтам лише необхідне: у першій сторінці історії лишаються останні 10 повідомлень, подробиці інструментів стискаються, великі проєкції плагінів (наприклад, панель контексту) відкидаються — віддалено цих даних не буде. Увімкнено за замовчуванням; вимкніть для повної історії. Застосовується одразу.',
   serverSavedLive: 'Адресу сервера збережено й застосовано.',
   saveServerBeforeLogin: 'Збережіть адресу сервера, перш ніж продовжити вхід або спарювання.',
   pairingLoginTab: 'DSH Go',
