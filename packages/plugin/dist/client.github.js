@@ -1931,6 +1931,10 @@ If a code was sent, recover the original submission without changing it.`,
     startSignIn: "Start sign-in",
     allowControlCurrentDevice: "Allow control of this device",
     allowControlDevice: "Allow control of this device",
+    liteMode: "Fast mode",
+    forceRelay: "Force relay",
+    forceRelayHint: "Skip LAN, internet-direct and TURN probing and connect straight through the encrypted relay. Faster first connection and reconnects, but all traffic goes through the server.",
+    liteModeHint: 'Send remote clients only what they need: the first history page keeps the latest 10 messages, tool details are compacted, and oversized plugin projections (such as the Context panel) are dropped, so that data is not available remotely. On by default; turn it off for the full history. Applies immediately. A remote client can ask the agent to flip it in chat, e.g. "turn on the fast mode switch of the ds-harness-remote-fast plugin".',
     connectedClientCount: "{count} connected",
     checkAcp: "Check backend",
     checkingAcp: "Checking ACP\u2026",
@@ -2284,6 +2288,10 @@ If a code was sent, recover the original submission without changing it.`,
     startSignIn: "\u5F00\u59CB\u767B\u5F55",
     allowControlCurrentDevice: "\u5141\u8BB8\u63A7\u5236\u672C\u673A",
     allowControlDevice: "\u5141\u8BB8\u63A7\u5236\u672C\u673A",
+    liteMode: "\u6781\u901F\u6A21\u5F0F",
+    forceRelay: "\u5F3A\u5236\u4E2D\u7EE7",
+    forceRelayHint: "\u8DF3\u8FC7\u5C40\u57DF\u7F51\u3001\u4E92\u8054\u7F51\u76F4\u8FDE\u548C TURN \u63A2\u6D4B\uFF0C\u76F4\u63A5\u8D70\u52A0\u5BC6\u4E2D\u7EE7\u3002\u9996\u6B21\u8FDE\u63A5\u4E0E\u65AD\u7EBF\u91CD\u8FDE\u66F4\u5FEB\uFF0C\u4F46\u6D41\u91CF\u4F1A\u7ECF\u8FC7\u670D\u52A1\u5668\u3002",
+    liteModeHint: "\u53EA\u5411\u8FDC\u7AEF\u63A8\u9001\u5FC5\u8981\u6570\u636E\uFF1A\u5386\u53F2\u4EC5\u4FDD\u7559\u6700\u8FD1 10 \u6761\u3001\u5DE5\u5177\u8BE6\u60C5\u505A\u538B\u7F29\uFF0C\u5E76\u4E22\u5F03\u4F53\u79EF\u8F83\u5927\u7684\u63D2\u4EF6\u6295\u5F71\uFF08\u5982\u4E0A\u4E0B\u6587\u9762\u677F\uFF09\uFF0C\u8FDC\u7AEF\u770B\u4E0D\u5230\u8FD9\u4E9B\u63D2\u4EF6\u6570\u636E\u3002\u9ED8\u8BA4\u5F00\u542F\uFF0C\u5173\u6389\u53EF\u83B7\u53D6\u5B8C\u6574\u5386\u53F2\u3002\u672C\u5F00\u5173\u5207\u6362\u540E\u7ACB\u5373\u751F\u6548\uFF0C\u8FDC\u7AEF\u8BBF\u95EE\u53EF\u4EE5\u5728\u5BF9\u8BDD\u4E2D\u8981\u6C42 agent \u6253\u5F00\u6216\u8005\u5173\u95ED\uFF0C\u6BD4\u5982\u300C\u6253\u5F00 ds-harness-remote-fast \u63D2\u4EF6\u7684\u6781\u901F\u6A21\u5F0F\u5F00\u5173\u300D\u3002",
     connectedClientCount: "{count} \u53F0\u5DF2\u8FDE\u63A5",
     checkAcp: "\u68C0\u6D4B\u540E\u7AEF",
     checkingAcp: "\u6B63\u5728\u68C0\u6D4B ACP\u2026",
@@ -4045,8 +4053,58 @@ If a code was sent, recover the original submission without changing it.`,
   var deepSeekWorkspaceIcon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAACVBMVEUAAADy8vXx8fUsA3vyAAAAAXRSTlMAQObYZgAAAOxJREFUWMPtlsEOwyAMQxP+/6OnTZMGxHGcot3wDYgfhkJbs6urprzveGtu9d1NgEdto8w93GuA7zPS2RFg7ynsCOAokbtAmLr2YaeKgJ6fxpT8jCAC0qSqPyNoO5DXdvyouj4ClFAdYaDxK09uiBDCIYBf6CxLesnR0uF2pG+JmhCqrUb0AOvjjoQaYDTCEAAgMg5grhAeAQIB+/M15IcKlnUIp4CkTCd0AKb4zVsRSJVGYEVzT0agK107IMGMEurvromEpaX4wzk/IKw378kq4LafED6Oowxfk7AP2q8W16EdM3p29Eyvrv6vF0WIBfBziKyCAAAAAElFTkSuQmCC", gptWorkspaceIcon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAAclBMVEX////v7+++wMf////s7O3k5OTExcrX2Ny6vMTv8PPW19yXmqRqboJmaHd3eoaqrLPs7fGMjpfb3eKlpq1eYXOxs7pWWWd+gY5HSVdRVGVub3k+QU74+Pg4OkcvMT1ISlUoKjUiIy4fICueoKkaGyUSFB21Bp+qAAAAAXRSTlMAQObYZgAABChJREFUWMPtl916qjoQhlsdEwIECEgMYCBxx/u/xT1DrFUL1LO1DtY8LSLJvPnmB4gfH//sr7TPDfvdebf/xXZbkE/4zZ0MVhGHd9zJDsv+7F3//Z69tT5wljAu3tXw+TIlzXKJlhflYmJ+5uF5WpWhb54X+C/zZCmT2wJA4dJZwus0UYjIGqWyMhVbEp4yKNRRqlv0opW5PJLJ4rFJXvP4JKDRMqturBZjkMVJFYjR6iHQDQDI4+k2k51wZbWrqwp4mR/1CVYATyko9TFGxBUqL5IvMbXSWt0T8bkGgFLqgqZBI/Uxbx5UAxLaNcCNLBpttM7wbCc1pmJOpWAsDtey68UaQMyrFgb9uxLPjqg3+nGluyKN0XUdWw0BJ0NvTFFqgzpr9J+Dh4w0Ga1qkqBNswagxdRgFPAbgHRQG5jumGWyMxrTIaRRa4AzFs0YrNMXgI4MJWnsKYFhGNMnIh/mBOPsV8CZBFjN9w8ArowxnZzDr5IcvxTaKpxJCVsoI3SWysz1UM4AqQdzlCgho1IKrK+x1mKFzisANtgEU8E7GwHDgOqxe4w9tnM166wbaA2xBMBLrTWcAGYGdCiYVUJUrMCF+7l6gklrW1RwPi8ByjuActANqhKzVWoYrFGcCFzbDgNaBrTWpncFQMcI2DfWoAiDqRCiHcYM/ZdCEKkZqfR8spj4F0CiJjv2gHL6URNoCQDaYacL6O1oFDO2eQDUFP7AKdCRdC4CRDZaNifbjA41l/uYb/SZMAFNTBGzY7sG4J2jTsJgToOzIzXF3HZqBpSOAGduXbkGEKV1OqVGqRJpRxtvwbSw5IqAiUJItwBCOT9R32FCGo3nCkAN3t0UTBRC6zDONcBeOee9pr4T+ASbnDOdc5OmtREwEEB5w8Wqgt4bOV5c7Lt9iiK8zdP/IsBbutUGX4gNwEVCqd3FUt/xYnRWt7BvPBYQjwjAGXa3ASguHVAZ/WXKlA3eZDX1wRegFsr7E2wAlB9xFbx/7MV70kFT8aqNgLL3F8nFBmA3hrn/IJHjKJOK2oj1WI4Z4FzwN/81AOhgYD6v2xbIvaZIurLC9AfvB1WLTYAoXejF1xeBL5cpBIyEbmxkZymIXwDQh1BAfOrhI1lfwtgz8tozF5T4ttf3+32AyxC6klwAgw/YVTHpoK82xYt3wLP/Bw4AAI4D7/01TLKXBj9NEz2wEuGiKpoy68S/FwCLMQAZ3gXhihaCa25vQo6RyToOz9PE6wYjJgGi1YnqZX8qMIK+TDlnargGzSv4NvFjlwXf/nfLLMrAB4O/Xl3BH0d+RIASFgDA8IYMIXgr2+cBsbDdPSwAAHjSZFmb3txETCKIxc0uWwI8rxsLJcTiVndNwyMgKljbbNN2/zcEAja2+4RgIDYN2Bu/WtAOaEodnu2dnzz/7I/Y/w/LaEcX/MdfAAAAAElFTkSuQmCC";
 
   // packages/plugin/src/client/workspaces.ts
+  var TOGGLES = {
+    liteMode: { label: "liteMode", hint: "liteModeHint", endpoint: "settings.lite.set" },
+    forceRelay: { label: "forceRelay", hint: "forceRelayHint", endpoint: "settings.forceRelay.set" }
+  };
+  function createRemoteToggleSwitch(React) {
+    return function(props) {
+      let meta = TOGGLES[props.configKey], [enabled, setEnabled] = React.useState(!1), [busy, setBusy] = React.useState(!1), [showHint, setShowHint] = React.useState(!1);
+      React.useEffect(() => {
+        props.control("settings.get").then((view) => setEnabled(view.config[props.configKey] === !0)).catch(() => {
+        });
+      }, [props.control, props.configKey]);
+      let toggle = async (next) => {
+        setEnabled(next), setBusy(!0);
+        try {
+          let view = await props.control(meta.endpoint, { enabled: next });
+          setEnabled(view.config[props.configKey] === !0);
+        } catch {
+          setEnabled(!next);
+        } finally {
+          setBusy(!1);
+        }
+      }, label = props.t(meta.label), hint = props.t(meta.hint);
+      return React.createElement(
+        "div",
+        {
+          className: "dshRemoteHostControlToggle",
+          style: { marginLeft: "14px", position: "relative" }
+        },
+        React.createElement("span", { title: hint, style: { cursor: "help" } }, label),
+        React.createElement("button", {
+          type: "button",
+          title: hint,
+          "aria-label": hint,
+          onClick: () => setShowHint(!showHint),
+          style: { width: "14px", height: "14px", borderRadius: "50%", border: "1px solid currentColor", background: "transparent", color: "inherit", fontSize: "10px", lineHeight: "12px", padding: "0", cursor: "pointer", opacity: 0.65, fontFamily: "inherit" }
+        }, "?"),
+        React.createElement("input", {
+          type: "checkbox",
+          role: "switch",
+          checked: enabled,
+          disabled: busy,
+          "aria-label": label,
+          onChange: (event) => void toggle(event.target.checked)
+        }),
+        showHint ? React.createElement("div", {
+          style: { position: "absolute", top: "100%", left: "0", zIndex: 30, marginTop: "6px", width: "280px", padding: "8px 10px", borderRadius: "6px", background: "rgba(24,24,28,0.94)", color: "#fff", fontSize: "12px", fontWeight: 400, lineHeight: "1.5", boxShadow: "0 4px 16px rgba(0,0,0,0.28)", whiteSpace: "normal" }
+        }, hint) : null
+      );
+    };
+  }
   function createRemoteWorkspaceAction(React, portal) {
-    let ServerNotice = createServerNotice(React), HostPairingPanel = createHostPairingPanel(React), RemoteProgressView = createRemoteProgressView(React);
+    let ServerNotice = createServerNotice(React), HostPairingPanel = createHostPairingPanel(React), RemoteToggleSwitch = createRemoteToggleSwitch(React), RemoteProgressView = createRemoteProgressView(React);
     function RemoteAccountEntry(props) {
       let [container, setContainer] = React.useState(null), { portal: portal2 } = props;
       if (React.useEffect(() => {
@@ -4881,6 +4939,8 @@ If a code was sent, recover the original submission without changing it.`,
                           onChange: (event) => void setCurrentDeviceControl(event.target.checked)
                         })
                       ) : null,
+                      React.createElement(RemoteToggleSwitch, { control: props.control, t, configKey: "liteMode" }),
+                      React.createElement(RemoteToggleSwitch, { control: props.control, t, configKey: "forceRelay" }),
                       connectedMenu
                     )
                   ),
@@ -4931,7 +4991,7 @@ If a code was sent, recover the original submission without changing it.`,
                     ),
                     updateNotice === void 0 ? null : React.createElement("a", {
                       className: "dshRemoteAccountUpdate",
-                      href: "https://github.com/liguobao/ds-harness-remote/releases",
+                      href: "https://github.com/rainow/ds-harness-remote-fast/releases",
                       target: "_blank",
                       rel: "noreferrer",
                       title: updateNotice
@@ -5850,7 +5910,7 @@ If a code was sent, recover the original submission without changing it.`,
   }
 
   // packages/plugin/src/client.ts
-  var clientModuleId = "ds-harness-remote", controlRouteBackoffStepsMs = [1e3, 2e3, 5e3, 1e4, 3e4], ControlRouteUnavailableError = class extends Error {
+  var clientModuleId = "ds-harness-remote-fast", controlRouteBackoffStepsMs = [1e3, 2e3, 5e3, 1e4, 3e4], ControlRouteUnavailableError = class extends Error {
     constructor(message) {
       super(message), this.name = "ControlRouteUnavailableError";
     }
@@ -5883,7 +5943,7 @@ If a code was sent, recover the original submission without changing it.`,
         }
       })(), RemotePluginOptions = createRemotePluginOptions(React);
       function RemotePluginSettingsAction(props) {
-        if (pluginSubjectPackageName(props.subject) !== "ds-harness-remote") return null;
+        if (!["ds-harness-remote-fast", "ds-harness-remote"].includes(pluginSubjectPackageName(props.subject) ?? "")) return null;
         let label = props.t("openPluginSettings");
         return React.createElement("button", {
           type: "button",
@@ -6236,7 +6296,7 @@ If a code was sent, recover the original submission without changing it.`,
           })
         }, RemoteWorkspaceAction)), ctx.slots.inject("plugins.row.config", () => ctx.slots.register({
           name: "plugins.row.config",
-          key: "ds-harness-remote#ds-harness-remote",
+          key: "ds-harness-remote-fast#ds-harness-remote",
           locale: localeNamespace,
           inject: () => ({
             control,
@@ -6247,7 +6307,7 @@ If a code was sent, recover the original submission without changing it.`,
           })
         }, RemotePluginOptions)), ctx.slots.inject("plugins.bundle.config", () => ctx.slots.register({
           name: "plugins.bundle.config",
-          key: "ds-harness-remote",
+          key: "ds-harness-remote-fast",
           locale: localeNamespace,
           inject: () => ({
             control,
