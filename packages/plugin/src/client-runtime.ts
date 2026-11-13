@@ -8,6 +8,7 @@ import type { HarnessMode } from './harness-target.js'
 import { probeRemoteHostFeatures, remoteHostFeatures } from './client-capabilities.js'
 import { ClientCodexStreams } from './client-codex-streams.js'
 import { ClientConnection } from './client-connection.js'
+import { isForceRelayEnabled } from './relay-preference.js'
 import { ClientReconnect } from './client-reconnect.js'
 import { ClientControl } from './client-control.js'
 import type {
@@ -270,7 +271,7 @@ export class ClientModeRuntime {
       ...(this.clientAuthRequired && !this.connected && targetStatus.mode === 'remote' ? { clientAuthRequired: true } : {}),
       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
       connectedTargetDeviceId: this.connected?.target.deviceId,
-      preferredTransports: this.config.forceRelay ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
+      preferredTransports: isForceRelayEnabled() || this.config.forceRelay ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
       ...(this.connectionProgress === undefined ? {} : {
         connectionProgress: {
           targetDeviceId: this.connectionProgress.targetDeviceId,

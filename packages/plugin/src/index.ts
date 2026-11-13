@@ -32,6 +32,8 @@ import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 import type { FileViewerHostServiceLike } from './file-viewer-bridge.js'
 import { createPluginRouteDispatcher, type PluginRouteConnectionLike } from './plugin-route-dispatcher.js'
 import { installRemoteDiscoveryTools } from './remote-tools.js'
+import { editableConfig } from './control-runtime.js'
+import { setLiteModeEnabled } from './lite-mode.js'
 import { runHmrSafe, type HmrContextLike } from './hmr-safe-settings.js'
 import { PluginUpdateChecker } from './update-check.js'
 import { assertRemoteEventSource } from './tui-event-source.js'
@@ -50,7 +52,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-export const name = 'ds-harness-remote'
+export const name = 'ds-harness-remote-fast'
 export { Config }
 
 // The unscoped dsh-remote package belongs to another publisher. A bare name
@@ -463,7 +465,17 @@ async function activate(
       await runtime?.close()
     }
   }, 'ds-harness-remote lifecycle')
-  if (config.remoteTools?.enabled) installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? undefined : clientRuntime)
+  if (config.remoteTools?.enabled) {
+    installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? undefined : clientRuntime, settingsBinding === undefined ? undefined : {
+      fastMode: () => resolveConfig(readConfig()).liteMode === true,
+      setFastMode: async (enabled: boolean) => {
+        const current = editableConfig(resolveConfig(readConfig()))
+        await settingsBinding.replace({ ...current, liteMode: enabled })
+        setLiteModeEnabled(enabled)
+        return enabled
+      },
+    })
+  }
 }
 
 /**

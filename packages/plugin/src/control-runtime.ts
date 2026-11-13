@@ -1,7 +1,10 @@
 import { hostname } from 'node:os'
 import { existsSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import type { ControlResult } from './control-result.js'
+import { setLiteModeEnabled } from './lite-mode.js'
+import { setForceRelayEnabled } from './relay-preference.js'
 import { resolveConfig, type Config, type ConfigInput, type ResolvedConfig } from './config.js'
 import {
   ClientModeError,
@@ -25,6 +28,8 @@ import type { PluginUpdateSnapshot } from './update-check.js'
 import { codexBinaryCandidates } from './codex/domain.js'
 import { cursorBinaryCandidates } from './acp/gateway.js'
 import { defaultCheckExecutable, installOrConfigureBackend, isBuiltinAcpBackend } from './acp/backend-installer.js'
+
+const execFileAsync = promisify(execFile)
 
 export interface PluginSettingsView {
   config: Config
@@ -148,6 +153,8 @@ export class PluginControlRuntime {
       }
       if (endpoint === 'settings.development.set') return ok(await this.setDevelopment(payload))
       if (endpoint === 'settings.appearance.set') return ok(await this.setAppearance(payload))
+      if (endpoint === 'settings.lite.set') return ok(await this.setLite(payload))
+      if (endpoint === 'settings.forceRelay.set') return ok(await this.setForceRelay(payload))
       if (endpoint === 'settings.get') return ok(await this.settingsView())
       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
       if (endpoint === 'settings.server.set') return ok(await this.setServer(payload))
@@ -395,6 +402,40 @@ export class PluginControlRuntime {
       return { ...await this.settingsView(), applies: 'live' }
     }
     this.clearStartupFailure()
+    return { ...await this.settingsView(), applies: 'live' }
+  }
+
+  private async setLite(payload: unknown): Promise<PluginSettingsView> {
+    if (this.settings === undefined) {
+      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+    }
+    const enabled = record(payload).enabled
+    if (typeof enabled !== 'boolean') {
+      throw new ClientModeError('INVALID_MESSAGE', 'The lite mode switch must be a boolean.')
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()))
+    await this.settings.replace({ ...current, liteMode: enabled })
+    setLiteModeEnabled(enabled)
+    return { ...await this.settingsView(), applies: 'live' }
+  }
+
+  /**
+   * Relay-only preference. Applies to new connections; the Host re-dials the
+   * Server so its advertised capabilities (and the Server-side negotiation)
+   * drop LAN/P2P/TURN right away.
+   */
+  private async setForceRelay(payload: unknown): Promise<PluginSettingsView> {
+    if (this.settings === undefined) {
+      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+    }
+    const enabled = record(payload).enabled
+    if (typeof enabled !== 'boolean') {
+      throw new ClientModeError('INVALID_MESSAGE', 'The relay preference must be a boolean.')
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()))
+    await this.settings.replace({ ...current, forceRelay: enabled })
+    setForceRelayEnabled(enabled)
+    this.host?.reconnectHost()
     return { ...await this.settingsView(), applies: 'live' }
   }
 
@@ -656,12 +697,18 @@ export class PluginControlRuntime {
       writable: this.settings !== undefined,
       applies: 'restart',
       associations,
-      acpAvailability: Object.fromEntries((config.acp?.backends ?? []).map(item => [item.id, backendCommandAvailable(item.id, item.command ?? '')])),
+      acpAvailability: await this.acpAvailability(config.acp?.backends ?? []),
       ...(association === undefined ? {} : { association }),
       ...(this.startupFailure === undefined ? {} : {
         startupError: safeStartupError(this.startupFailure),
       }),
     }
+  }
+
+  /** Probes run off the event loop; the TTL cache above keeps them rare. */
+  private async acpAvailability(backends: readonly { id: string, command?: string }[]): Promise<Record<string, boolean>> {
+    const entries = await Promise.all(backends.map(async item => [item.id, await backendCommandAvailable(item.id, item.command ?? '')] as const))
+    return Object.fromEntries(entries)
   }
 
   private async associations(config: Config): Promise<PluginSettingsView['associations']> {
@@ -710,28 +757,52 @@ export class PluginControlRuntime {
   }
 }
 
-function backendCommandAvailable(backend: string, command: string): boolean {
-  if (!command || typeof command !== 'string' || command.trim().length === 0) return false
+/**
+ * Probing a backend spawns `which`, which blocks the event loop; every settings
+ * read used to pay for it (2x per save on a two-backend profile). The answer only
+ * changes when the user installs a binary, so a short cache is enough.
+ */
+const COMMAND_AVAILABILITY_TTL_MS = 30_000
+const commandAvailability = new Map<string, { value: Promise<boolean>, at: number }>()
+
+/**
+ * Probing a backend spawns `which`. It used to run synchronously on every
+ * settings read, blocking the event loop (and the frame pump) for tens of
+ * milliseconds; now it runs off-thread and the answer is cached for a while.
+ */
+function backendCommandAvailable(backend: string, command: string): Promise<boolean> {
+  if (!command || typeof command !== 'string' || command.trim().length === 0) return Promise.resolve(false)
   const trimmed = command.trim()
+  const cacheKey = `${backend}\u0000${trimmed}`
+  const now = Date.now()
+  const cached = commandAvailability.get(cacheKey)
+  if (cached !== undefined && now - cached.at < COMMAND_AVAILABILITY_TTL_MS) return cached.value
+  const value = probeBackendCommand(backend, trimmed)
+  commandAvailability.set(cacheKey, { value, at: now })
+  return value
+}
+
+async function probeBackendCommand(backend: string, trimmed: string): Promise<boolean> {
   if (defaultCheckExecutable(trimmed)) return true
   const candidates = backend === 'codex' ? codexBinaryCandidates(trimmed)
     : backend === 'cursor' || backend === 'antigravity' || backend === 'opencode' ? cursorBinaryCandidates(trimmed) : [trimmed]
-  return candidates.some(candidate => defaultCheckExecutable(candidate) || commandAvailable(candidate))
+  for (const candidate of candidates) {
+    if (defaultCheckExecutable(candidate)) return true
+    if (await commandAvailable(candidate)) return true
+  }
+  return false
 }
 
-function commandAvailable(command: string): boolean {
+async function commandAvailable(command: string): Promise<boolean> {
   try {
-    execFileSync(process.platform === 'win32' ? 'where' : 'which', [command], {
-      stdio: 'ignore',
-      timeout: 5000,
-    })
+    await execFileAsync(process.platform === 'win32' ? 'where' : 'which', [command], { timeout: 5000 })
     return true
   } catch {
     return false
   }
 }
 
-function editableConfig(config: ResolvedConfig): Config {
+export function editableConfig(config: ResolvedConfig): Config {
   return {
     enabled: config.enabled,
     role: config.role,
@@ -744,6 +815,7 @@ function editableConfig(config: ResolvedConfig): Config {
     loopback: config.loopback,
     forceRelay: config.forceRelay,
     logLevel: config.logLevel,
+    liteMode: config.liteMode,
     reconnect: config.reconnect.enabled
       ? {
           initialDelayMs: config.reconnect.initialDelayMs,
