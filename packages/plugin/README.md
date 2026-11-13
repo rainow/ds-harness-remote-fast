@@ -1,12 +1,25 @@
-# DeepSeek Harness Remote
+# DeepSeek Harness Remote · fast（社区 fork）
+
+> **这是社区 fork：官方原版是 [liguobao/ds-harness-remote](https://github.com/liguobao/ds-harness-remote)。**
+> 没有遇到问题的用户请直接使用官方原版；本 fork 只做速度优化与少量上游尚未合并的修复。
+>
+> **为什么继续维护这个 fork（相对官方 0.6.8）**
+>
+> - 极速模式：Host 侧裁剪投影与历史（默认开启），大会话首屏从数 MB 降到几百 KB，可在 Remote 弹窗里手动关闭；
+> - 手机端图片 / 截图显示：放行工作区 root 内的绝对路径（上游仍拒绝，设备侧读不到图）；
+> - 精简历史不再吞掉图片块与 UI 卡片元数据（上游会压成文本，卡片直接消失）；
+> - 强制中继：Host 侧开关，跳过局域网 / 直连 / TURN 协商，重连更快；
+> - 发布前自动校验打好的 bundle，避免把 tsc 中间产物发上 npm。
+>
+> 其余行为与官方 0.6.8 一致；上游发版后本 fork 会跟进同步。安装命令见下方，包名是 `ds-harness-remote-fast`。
 
 Continue DeepSeek Harness sessions and experimental Codex, Cursor, and Antigravity workspaces from another device over an end-to-end encrypted connection.
 
-[GitHub](https://github.com/liguobao/ds-harness-remote) · [Full guide](https://github.com/liguobao/ds-harness-remote/blob/main/README.md) · [中文说明](https://github.com/liguobao/ds-harness-remote/blob/main/README.zh.md) · [Remote Web](https://dsh.r2049.cn/app) · [iOS beta](https://github.com/liguobao/ds-harness-remote/issues/20) · [Android](https://github.com/liguobao/ds-harness-remote/releases/latest) · [DSH Go](https://github.com/ccch1mneyyy/dsh-go)
+[GitHub](https://github.com/rainow/ds-harness-remote-fast) · [Full guide](https://github.com/rainow/ds-harness-remote-fast/blob/lite/README.md) · [中文说明](https://github.com/rainow/ds-harness-remote-fast/blob/lite/README.zh.md) · [Remote Web](https://dsh.r2049.cn/app) · [iOS beta](https://github.com/liguobao/ds-harness-remote/issues/20) · [Android](https://github.com/liguobao/ds-harness-remote/releases/latest) · [DSH Go](https://github.com/ccch1mneyyy/dsh-go)
 
 [DSH Go](https://github.com/ccch1mneyyy/dsh-go) is a third-party DeepSeek Harness Android client that can run DSH on your phone or connect to your computer through this plugin.
 
-`ds-harness-remote` is the Remote Host and workspace plugin for DeepSeek Harness. Harness keeps running on your work computer with its existing workspaces, tools, and permission controls; Remote gives authorized devices another window into that environment.
+`ds-harness-remote-fast` is the Remote Host and workspace plugin for DeepSeek Harness. Harness keeps running on your work computer with its existing workspaces, tools, and permission controls; Remote gives authorized devices another window into that environment.
 
 > Install the npm package through Desktop Plugin management or `dsh plugin`. Both manage the selected Harness profile and its bundle configuration.
 
@@ -46,13 +59,13 @@ In DeepSeek Harness Desktop, open **Extensions / Plugin management**, choose ins
 from **npm**, and enter:
 
 ```text
-ds-harness-remote@0.6.8
+ds-harness-remote-fast@0.6.8-fast.1
 ```
 
 Restart Desktop after installation. Its official `dsh` launcher can also install the package:
 
 ```sh
-dsh plugin --profile desktop add -w ds-harness-remote@0.6.8
+dsh plugin --profile desktop add -w ds-harness-remote-fast@0.6.8-fast.1
 ```
 
 Use Desktop's official launcher to manage its reserved `desktop` profile.
@@ -62,8 +75,16 @@ Use Desktop's official launcher to manage its reserved `desktop` profile.
 Add the current package version to the `web` profile, then restart Harness:
 
 ```sh
-dsh plugin --profile web add -w ds-harness-remote@0.6.8
+dsh plugin --profile web add -w ds-harness-remote-fast@0.6.8-fast.1
 ```
+
+## 本 fork 的改动（0.6.8-fast.1）
+
+- 同步上游 0.6.8。
+- 极速模式默认开启，可在 Remote 弹窗手动关闭。
+- 工作区内绝对路径的图片 / 截图可在手机端正常显示。
+- 精简历史保留图片块与 UI 卡片元数据。
+- 强制中继开关；发布前 bundle 校验。
 
 ## What’s new in 0.6.8
 

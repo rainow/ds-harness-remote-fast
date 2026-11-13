@@ -28,6 +28,24 @@
   <a href="https://trendshift.io/repositories/177732" target="_blank"><img src="https://trendshift.io/api/badge/repositories/177732" alt="liguobao%2Fds-harness-remote | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 </p>
 
+## 这个仓库是社区 fork
+
+本仓库是 [liguobao/ds-harness-remote](https://github.com/liguobao/ds-harness-remote) 的社区 fork（`rainow/ds-harness-remote-fast`），只做**速度优化**与少量上游尚未合并的修复：减少不必要的投影与历史传输、补齐移动端看图所需的路径放行、修好精简历史里被吞掉的图片块与 UI 卡片元数据。
+
+**推荐没有遇到问题的用户直接使用官方原版**：功能齐全、发布更及时、社区支持也更好。只有当你遇到「大会话首屏很慢 / 手机端图片显示不出来 / 希望强制走中继」这类问题时，才需要本 fork。
+
+### 为什么继续维护这个 fork
+
+| 能力 | 上游原版 | 本 fork |
+| --- | --- | --- |
+| 极速模式（Host 侧裁剪投影与历史，默认开启） | 无；精简历史需要客户端主动请求 | 有，可在 Remote 弹窗里手动关闭 |
+| 手机端图片 / 截图显示（工作区内绝对路径） | 仍拒绝绝对路径 | 已放行（仅限工作区 root 内） |
+| 精简历史里的图片块与 UI 卡片元数据 | 会被压成文本、卡片丢失 | 原样保留 |
+| 强制中继（Host 只上报 relay，跳过直连协商） | 仅客户端侧重试策略 | Host 侧开关，即时生效 |
+| 发布前校验打好的 bundle | 无 | 打包前自动校验，避免把错误产物发到 npm |
+
+其余行为与官方 0.6.8 保持一致。上游发布新版本后，本 fork 会跟进同步。
+
 ## 一次连接，随时可用。
 
 从手机、电脑、浏览器继续使用你的 DeepSeek Harness 实例。无论使用哪台设备，都可以回到同一个 Harness 会话。
@@ -36,7 +54,7 @@ Harness 始终运行在工作电脑上，原有的工作区、工具和项目配
 
 已支持 DeepSeek Harness 桌面版，使用最新版本安装即可：
 
-`ds-harness-remote@0.6.7`
+`ds-harness-remote-fast@0.6.8-fast.1`
 
 ## 主要特性
 
@@ -72,10 +90,10 @@ Harness 始终运行在工作电脑上，原有的工作区、工具和项目配
 
 在 DeepSeek Harness Desktop 的 **扩展 / 插件管理** 中，选择从 **npm** 安装，输入包名和版本：
 
-`ds-harness-remote@0.6.7`
+`ds-harness-remote-fast@0.6.8-fast.1`
 
 安装后重启 Desktop。也可使用它的官方 `dsh` 启动器安装固定版本：
-`dsh plugin --profile desktop add -w ds-harness-remote@0.6.7`。
+`dsh plugin --profile desktop add -w ds-harness-remote-fast@0.6.8-fast.1`。
 
 DSH 0.2.2 起，npm 安装支持在插件页检查版本和一键更新；热更新失败时由 DSH 尝试恢复旧版。GitHub / 本地 link 安装需先切换到 npm，见[在线更新说明](docs/installation.zh.md#dsh-插件页在线更新)。
 
