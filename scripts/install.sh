@@ -81,7 +81,7 @@ elif [[ "$os" = Linux ]]; then
   { printf '#!/usr/bin/env bash\n# ds-harness-remote managed private runtime\n'; printf 'export PATH=%q:"$PATH"\n' "$runtime/node/bin:$runtime/harness/node_modules/.bin"; printf 'exec %q "$@"\n' "$runtime/harness/node_modules/.bin/dsh"; } > "$DSH_COMMAND"
   chmod 755 "$DSH_COMMAND"
 else
-  fail "No existing dsh command found. Install via Desktop Extensions / Plugin management (https://github.com/liguobao/ds-harness-remote), or enable Desktop's official dsh launcher."
+  fail "No existing dsh command found. Install via Desktop Extensions / Plugin management (https://github.com/rainow/ds-harness-remote-fast), or enable Desktop's official dsh launcher."
 fi
 # plugin exec changes cwd; service ExecStart must also use an absolute executable.
 if [[ "$DSH_COMMAND" != /* ]]; then DSH_COMMAND="$(pwd -P)/$DSH_COMMAND"; fi
@@ -139,7 +139,7 @@ function abort(message) { const error = new Error(message); error.installerSafe 
   }
   if (autostart === '1') checkOwner();
   if (mode === 'owner') return;
-  const pkgPath = req.resolve('ds-harness-remote/package.json');
+  const pkgPath = req.resolve('ds-harness-remote-fast/package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   const entry = pkg.exports?.['.']?.import || pkg.main;
   if (typeof entry !== 'string') abort('Remote package has no import entry');
@@ -167,7 +167,7 @@ function abort(message) { const error = new Error(message); error.installerSafe 
   walk(tree);
   // The bundle inserts exactly one static Host entry in this release (dsh-TUI
   // integration is deferred, so no complementary terminal row exists).
-  const remotes = entries.filter(e => e.node.name === 'ds-harness-remote' && !e.off && !e.uncertain);
+  const remotes = entries.filter(e => e.node.name === 'ds-harness-remote-fast' && !e.off && !e.uncertain);
   if (remotes.length !== 1) abort('Remote configuration is missing, ambiguous or dynamically enabled');
   const input = remotes[0].node.config || {};
   function staticValue(value) { if(value instanceof Expression) abort('Dynamic Remote configuration is unsupported'); if(value && typeof value === 'object') Object.values(value).forEach(staticValue); }
@@ -244,8 +244,8 @@ NODE
 run_helper() { "$DSH_COMMAND" plugin --profile "$DSH_PROFILE" exec node -e "$helper" "$DSH_COMMAND" "$DSH_PROFILE" "$1" "$autostart" "$DSH_SYSTEMD_DIR"; }
 # Check service ownership before changing packages, then capabilities before redemption.
 if [[ "$autostart" = 1 ]]; then run_helper owner; fi
-say "Installing ds-harness-remote@${REMOTE_VERSION} into profile ${DSH_PROFILE} using ${DSH_COMMAND}"
-"$DSH_COMMAND" plugin --profile "$DSH_PROFILE" add -w "ds-harness-remote@${REMOTE_VERSION}"
+say "Installing ds-harness-remote-fast@${REMOTE_VERSION} into profile ${DSH_PROFILE} using ${DSH_COMMAND}"
+"$DSH_COMMAND" plugin --profile "$DSH_PROFILE" add -w "ds-harness-remote-fast@${REMOTE_VERSION}"
 if [[ "$INTELLIGENT_UI" = 1 ]]; then
   # Same profile as Remote, before any service restart picks up the new bundles.
   say "Installing deepseek-harness-intelligent-ui@${INTELLIGENT_UI_VERSION} into profile ${DSH_PROFILE}"
