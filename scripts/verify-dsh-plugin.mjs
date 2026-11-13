@@ -11,7 +11,7 @@ const pluginManifest = JSON.parse(readFileSync(join(root, 'packages/plugin/packa
 const componentManifest = JSON.parse(readFileSync(join(root, 'dsh-plugin.json'), 'utf8'))
 const pluginComponentManifest = JSON.parse(readFileSync(join(root, 'packages/plugin/dsh-plugin.json'), 'utf8'))
 
-assert.equal(manifest.name, 'ds-harness-remote', 'root package must use the canonical DSH installation id')
+assert.equal(manifest.name, 'ds-harness-remote-fast', 'root package must use the canonical DSH installation id')
 assert.equal(pluginManifest.name, manifest.name, 'root and npm plugin package ids must stay unified')
 assert.equal(pluginManifest.version, manifest.version, 'root and npm plugin versions must stay unified')
 assert.equal(componentManifest.name, manifest.name, 'root Component manifest must use the canonical plugin id')
@@ -49,14 +49,14 @@ assert.ok(
 )
 assert.equal(manifest.main, './index.js', 'root package must expose a prebuilt Host entry at package root')
 assert.equal(
-  manifest.bin?.['ds-harness-remote'],
-  './packages/plugin/bin/ds-harness-remote.js',
+  manifest.bin?.['ds-harness-remote-fast'],
+  './packages/plugin/bin/ds-harness-remote-fast.js',
   'root package must expose the Remote CLI',
 )
 assert.equal(manifest.bin?.remote, undefined, 'root package must not install a standalone remote executable')
 assert.equal(
-  pluginManifest.bin?.['ds-harness-remote'],
-  './bin/ds-harness-remote.js',
+  pluginManifest.bin?.['ds-harness-remote-fast'],
+  './bin/ds-harness-remote-fast.js',
   'npm plugin package must expose the Remote CLI',
 )
 assert.equal(pluginManifest.bin?.remote, undefined, 'npm package must not install a standalone remote executable')
@@ -79,7 +79,7 @@ for (const file of [
   'packages/plugin/dist/index.js',
   'packages/plugin/dist/client.github.js',
   'packages/plugin/public.d.ts',
-  'packages/plugin/bin/ds-harness-remote.js',
+  'packages/plugin/bin/ds-harness-remote-fast.js',
 ]) {
   assert.ok(existsSync(join(root, file)), `DSH plugin artifact is missing: ${file}`)
 }
@@ -108,7 +108,7 @@ const rootHostEntry = readFileSync(join(root, 'index.js'), 'utf8')
 assert.match(rootHostEntry, /packages\/plugin\/dist\/index\.js/, 'root Host entry must forward to the committed bundle')
 
 const publicTypes = readFileSync(join(root, 'packages/plugin/public.d.ts'), 'utf8')
-assert.match(publicTypes, /name:\s*'ds-harness-remote'/, 'public types must expose the canonical plugin id')
+assert.match(publicTypes, /name:\s*'ds-harness-remote-fast'/, 'public types must expose the canonical plugin id')
 
 const hostBundle = readFileSync(join(root, 'packages/plugin/dist/index.js'), 'utf8')
 assert.doesNotMatch(hostBundle, /(?:from\s+|require\()['\"]@dsh-remote\//, 'Host bundle must not import unpublished workspace packages')
