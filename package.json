@@ -1,31 +1,30 @@
 {
-  "name": "ds-harness-remote",
-  "version": "0.6.4",
+  "name": "ds-harness-remote-fast",
+  "version": "0.6.4-fast.5",
   "description": "P2P-based, end-to-end encrypted remote access to DeepSeek Harness, CodeX, Claude Code, Pi, and other workspaces from web and mobile clients.",
   "keywords": [
     "deepseek",
     "deepseek-harness",
     "dsh",
-    "dsh-plugin",
     "codex",
     "remote-development",
     "end-to-end-encryption",
     "webrtc"
   ],
-  "homepage": "https://github.com/liguobao/ds-harness-remote#readme",
+  "homepage": "https://github.com/rainow/ds-harness-remote-fast#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/liguobao/ds-harness-remote.git"
+    "url": "git+https://github.com/rainow/ds-harness-remote-fast.git"
   },
   "bugs": {
-    "url": "https://github.com/liguobao/ds-harness-remote/issues"
+    "url": "https://github.com/rainow/ds-harness-remote-fast/issues"
   },
   "author": "liguobao <lgb835485368@gmail.com>",
   "license": "MIT",
   "type": "module",
   "main": "./index.js",
   "bin": {
-    "ds-harness-remote": "./packages/plugin/bin/ds-harness-remote.js"
+    "ds-harness-remote-fast": "./packages/plugin/bin/ds-harness-remote-fast.js"
   },
   "types": "./packages/plugin/public.d.ts",
   "exports": {
