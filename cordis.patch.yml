@@ -6,7 +6,7 @@
 # is deferred to a later release, so no terminal-specific entry is inserted.
 - insert:
     - id: ds-harness-remote
-      name: ds-harness-remote
+      name: ds-harness-remote-fast
       inject:
         - webServer
       config:

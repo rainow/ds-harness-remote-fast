@@ -104,7 +104,7 @@ try {
       join(destination, pack.filename)], generation)
     const modules = join(generation, 'node_modules')
     const count = verifyClosure(modules, generation, installation)
-    const plugin = join(modules, 'ds-harness-remote')
+    const plugin = join(modules, 'ds-harness-remote-fast')
     const manifest = JSON.parse(readFileSync(join(plugin, 'package.json'), 'utf8'))
     assert.equal(manifest.dependencies?.werift, undefined)
     const clientExport = manifest.exports?.['./client']
@@ -120,8 +120,8 @@ try {
         `${label}: packed JS file ${relative(plugin, filePath)} must not reference @dsh-remote/* or werift`,
       )
     }
-    const cliBin = manifest.bin?.['ds-harness-remote']
-    assert.equal(typeof cliBin, 'string', `${label}: package bin['ds-harness-remote'] must be a string`)
+    const cliBin = manifest.bin?.['ds-harness-remote-fast']
+    assert.equal(typeof cliBin, 'string', `${label}: package bin['ds-harness-remote-fast'] must be a string`)
     const cliPath = join(plugin, cliBin)
     assert.ok(existsSync(cliPath), `${label}: missing packed CLI entry ${cliBin}`)
     const cliHelp = run(process.execPath, [cliPath, '--help'], generation)
