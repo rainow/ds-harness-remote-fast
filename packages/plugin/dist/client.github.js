@@ -2027,6 +2027,10 @@ If a code was sent, recover the original submission without changing it.`,
     startSignIn: "Start sign-in",
     allowControlCurrentDevice: "Allow control of this device",
     allowControlDevice: "Allow control of this device",
+    liteMode: "Fast mode",
+    forceRelay: "Force relay",
+    forceRelayHint: "Skip LAN, internet-direct and TURN probing and connect straight through the encrypted relay. Faster first connection and reconnects, but all traffic goes through the server.",
+    liteModeHint: 'Send remote clients only what they need: the first history page keeps the latest 10 messages, tool details are compacted, and oversized plugin projections (such as the Context panel) are dropped, so that data is not available remotely. On by default; turn it off for the full history. Applies immediately. A remote client can ask the agent to flip it in chat, e.g. "turn on the fast mode switch of the ds-harness-remote-fast plugin".',
     connectedClientCount: "{count} connected",
     checkAcp: "Check backend",
     checkingAcp: "Checking ACP\u2026",
@@ -2410,6 +2414,10 @@ If a code was sent, recover the original submission without changing it.`,
     startSignIn: "\u5F00\u59CB\u767B\u5F55",
     allowControlCurrentDevice: "\u5141\u8BB8\u63A7\u5236\u672C\u673A",
     allowControlDevice: "\u5141\u8BB8\u63A7\u5236\u672C\u673A",
+    liteMode: "\u6781\u901F\u6A21\u5F0F",
+    forceRelay: "\u5F3A\u5236\u4E2D\u7EE7",
+    forceRelayHint: "\u8DF3\u8FC7\u5C40\u57DF\u7F51\u3001\u4E92\u8054\u7F51\u76F4\u8FDE\u548C TURN \u63A2\u6D4B\uFF0C\u76F4\u63A5\u8D70\u52A0\u5BC6\u4E2D\u7EE7\u3002\u9996\u6B21\u8FDE\u63A5\u4E0E\u65AD\u7EBF\u91CD\u8FDE\u66F4\u5FEB\uFF0C\u4F46\u6D41\u91CF\u4F1A\u7ECF\u8FC7\u670D\u52A1\u5668\u3002",
+    liteModeHint: "\u53EA\u5411\u8FDC\u7AEF\u63A8\u9001\u5FC5\u8981\u6570\u636E\uFF1A\u5386\u53F2\u4EC5\u4FDD\u7559\u6700\u8FD1 10 \u6761\u3001\u5DE5\u5177\u8BE6\u60C5\u505A\u538B\u7F29\uFF0C\u5E76\u4E22\u5F03\u4F53\u79EF\u8F83\u5927\u7684\u63D2\u4EF6\u6295\u5F71\uFF08\u5982\u4E0A\u4E0B\u6587\u9762\u677F\uFF09\uFF0C\u8FDC\u7AEF\u770B\u4E0D\u5230\u8FD9\u4E9B\u63D2\u4EF6\u6570\u636E\u3002\u9ED8\u8BA4\u5F00\u542F\uFF0C\u5173\u6389\u53EF\u83B7\u53D6\u5B8C\u6574\u5386\u53F2\u3002\u672C\u5F00\u5173\u5207\u6362\u540E\u7ACB\u5373\u751F\u6548\uFF0C\u8FDC\u7AEF\u8BBF\u95EE\u53EF\u4EE5\u5728\u5BF9\u8BDD\u4E2D\u8981\u6C42 agent \u6253\u5F00\u6216\u8005\u5173\u95ED\uFF0C\u6BD4\u5982\u300C\u6253\u5F00 ds-harness-remote-fast \u63D2\u4EF6\u7684\u6781\u901F\u6A21\u5F0F\u5F00\u5173\u300D\u3002",
     connectedClientCount: "{count} \u53F0\u5DF2\u8FDE\u63A5",
     checkAcp: "\u68C0\u6D4B\u540E\u7AEF",
     checkingAcp: "\u6B63\u5728\u68C0\u6D4B ACP\u2026",
@@ -2464,6 +2472,10 @@ If a code was sent, recover the original submission without changing it.`,
     hermesVirtualWorkspace: "Hermes \u5DE5\u4F5C\u533A",
     codexVirtualSessions: "Sessions"
   }, ru = {
+    liteMode: "\u0411\u044B\u0441\u0442\u0440\u044B\u0439 \u0440\u0435\u0436\u0438\u043C",
+    forceRelay: "\u0422\u043E\u043B\u044C\u043A\u043E \u0447\u0435\u0440\u0435\u0437 \u0440\u0435\u0442\u0440\u0430\u043D\u0441\u043B\u044F\u0442\u043E\u0440",
+    forceRelayHint: "\u041F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u0442\u044C \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0443 LAN, \u043F\u0440\u044F\u043C\u043E\u0433\u043E \u0441\u043E\u0435\u0434\u0438\u043D\u0435\u043D\u0438\u044F \u0438 TURN \u0438 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0430\u0442\u044C\u0441\u044F \u0441\u0440\u0430\u0437\u0443 \u0447\u0435\u0440\u0435\u0437 \u0448\u0438\u0444\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0439 \u0440\u0435\u0442\u0440\u0430\u043D\u0441\u043B\u044F\u0442\u043E\u0440. \u041F\u0435\u0440\u0432\u043E\u0435 \u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u0438 \u043F\u0435\u0440\u0435\u043F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u0431\u044B\u0441\u0442\u0440\u0435\u0435, \u043D\u043E \u0432\u0435\u0441\u044C \u0442\u0440\u0430\u0444\u0438\u043A \u0438\u0434\u0451\u0442 \u0447\u0435\u0440\u0435\u0437 \u0441\u0435\u0440\u0432\u0435\u0440.",
+    liteModeHint: "\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0442\u044C \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u043C \u043A\u043B\u0438\u0435\u043D\u0442\u0430\u043C \u0442\u043E\u043B\u044C\u043A\u043E \u043D\u0435\u043E\u0431\u0445\u043E\u0434\u0438\u043C\u043E\u0435: \u0432 \u043F\u0435\u0440\u0432\u043E\u0439 \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435 \u0438\u0441\u0442\u043E\u0440\u0438\u0438 \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0435 10 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0439, \u043F\u043E\u0434\u0440\u043E\u0431\u043D\u043E\u0441\u0442\u0438 \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u043E\u0432 \u0441\u0436\u0438\u043C\u0430\u044E\u0442\u0441\u044F, \u043A\u0440\u0443\u043F\u043D\u044B\u0435 \u043F\u0440\u043E\u0435\u043A\u0446\u0438\u0438 \u043F\u043B\u0430\u0433\u0438\u043D\u043E\u0432 (\u043D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u043F\u0430\u043D\u0435\u043B\u044C \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0430) \u043E\u0442\u0431\u0440\u0430\u0441\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u2014 \u0443\u0434\u0430\u043B\u0451\u043D\u043D\u043E \u044D\u0442\u0438\u0445 \u0434\u0430\u043D\u043D\u044B\u0445 \u043D\u0435 \u0431\u0443\u0434\u0435\u0442. \u0412\u043A\u043B\u044E\u0447\u0435\u043D\u043E \u043F\u043E \u0443\u043C\u043E\u043B\u0447\u0430\u043D\u0438\u044E; \u043E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0434\u043B\u044F \u043F\u043E\u043B\u043D\u043E\u0439 \u0438\u0441\u0442\u043E\u0440\u0438\u0438. \u041F\u0440\u0438\u043C\u0435\u043D\u044F\u0435\u0442\u0441\u044F \u0441\u0440\u0430\u0437\u0443.",
     serverSavedLive: "\u0410\u0434\u0440\u0435\u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D \u0438 \u043F\u0440\u0438\u043C\u0435\u043D\u0451\u043D.",
     saveServerBeforeLogin: "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0435 \u0430\u0434\u0440\u0435\u0441 \u0441\u0435\u0440\u0432\u0435\u0440\u0430, \u043F\u0440\u0435\u0436\u0434\u0435 \u0447\u0435\u043C \u043F\u0440\u043E\u0434\u043E\u043B\u0436\u0438\u0442\u044C \u0432\u0445\u043E\u0434 \u0438\u043B\u0438 \u0441\u043E\u043F\u0440\u044F\u0436\u0435\u043D\u0438\u0435.",
     pairingLoginTab: "DSH Go",
@@ -2846,6 +2858,10 @@ If a code was sent, recover the original submission without changing it.`,
     hermesVirtualWorkspace: "\u0412\u0438\u0440\u0442\u0443\u0430\u043B\u044C\u043D\u0430\u044F \u0440\u0430\u0431\u043E\u0447\u0430\u044F \u043E\u0431\u043B\u0430\u0441\u0442\u044C Hermes",
     codexVirtualSessions: "\u0421\u0435\u0441\u0441\u0438\u0438"
   }, uk = {
+    liteMode: "\u0428\u0432\u0438\u0434\u043A\u0438\u0439 \u0440\u0435\u0436\u0438\u043C",
+    forceRelay: "\u041B\u0438\u0448\u0435 \u0447\u0435\u0440\u0435\u0437 \u0440\u0435\u0442\u0440\u0430\u043D\u0441\u043B\u044F\u0442\u043E\u0440",
+    forceRelayHint: "\u041F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u0442\u0438 \u043F\u0435\u0440\u0435\u0432\u0456\u0440\u043A\u0443 LAN, \u043F\u0440\u044F\u043C\u043E\u0433\u043E \u0437\u02BC\u0454\u0434\u043D\u0430\u043D\u043D\u044F \u0439 TURN \u0456 \u043F\u0456\u0434\u043A\u043B\u044E\u0447\u0430\u0442\u0438\u0441\u044F \u043E\u0434\u0440\u0430\u0437\u0443 \u0447\u0435\u0440\u0435\u0437 \u0437\u0430\u0448\u0438\u0444\u0440\u043E\u0432\u0430\u043D\u0438\u0439 \u0440\u0435\u0442\u0440\u0430\u043D\u0441\u043B\u044F\u0442\u043E\u0440. \u041F\u0435\u0440\u0448\u0435 \u043F\u0456\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u043D\u044F \u0442\u0430 \u043F\u0435\u0440\u0435\u043F\u0456\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u043D\u044F \u0448\u0432\u0438\u0434\u0448\u0456, \u0430\u043B\u0435 \u0432\u0435\u0441\u044C \u0442\u0440\u0430\u0444\u0456\u043A \u0456\u0434\u0435 \u0447\u0435\u0440\u0435\u0437 \u0441\u0435\u0440\u0432\u0435\u0440.",
+    liteModeHint: "\u041D\u0430\u0434\u0441\u0438\u043B\u0430\u0442\u0438 \u0432\u0456\u0434\u0434\u0430\u043B\u0435\u043D\u0438\u043C \u043A\u043B\u0456\u0454\u043D\u0442\u0430\u043C \u043B\u0438\u0448\u0435 \u043D\u0435\u043E\u0431\u0445\u0456\u0434\u043D\u0435: \u0443 \u043F\u0435\u0440\u0448\u0456\u0439 \u0441\u0442\u043E\u0440\u0456\u043D\u0446\u0456 \u0456\u0441\u0442\u043E\u0440\u0456\u0457 \u043B\u0438\u0448\u0430\u044E\u0442\u044C\u0441\u044F \u043E\u0441\u0442\u0430\u043D\u043D\u0456 10 \u043F\u043E\u0432\u0456\u0434\u043E\u043C\u043B\u0435\u043D\u044C, \u043F\u043E\u0434\u0440\u043E\u0431\u0438\u0446\u0456 \u0456\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u0456\u0432 \u0441\u0442\u0438\u0441\u043A\u0430\u044E\u0442\u044C\u0441\u044F, \u0432\u0435\u043B\u0438\u043A\u0456 \u043F\u0440\u043E\u0454\u043A\u0446\u0456\u0457 \u043F\u043B\u0430\u0433\u0456\u043D\u0456\u0432 (\u043D\u0430\u043F\u0440\u0438\u043A\u043B\u0430\u0434, \u043F\u0430\u043D\u0435\u043B\u044C \u043A\u043E\u043D\u0442\u0435\u043A\u0441\u0442\u0443) \u0432\u0456\u0434\u043A\u0438\u0434\u0430\u044E\u0442\u044C\u0441\u044F \u2014 \u0432\u0456\u0434\u0434\u0430\u043B\u0435\u043D\u043E \u0446\u0438\u0445 \u0434\u0430\u043D\u0438\u0445 \u043D\u0435 \u0431\u0443\u0434\u0435. \u0423\u0432\u0456\u043C\u043A\u043D\u0435\u043D\u043E \u0437\u0430 \u0437\u0430\u043C\u043E\u0432\u0447\u0443\u0432\u0430\u043D\u043D\u044F\u043C; \u0432\u0438\u043C\u043A\u043D\u0456\u0442\u044C \u0434\u043B\u044F \u043F\u043E\u0432\u043D\u043E\u0457 \u0456\u0441\u0442\u043E\u0440\u0456\u0457. \u0417\u0430\u0441\u0442\u043E\u0441\u043E\u0432\u0443\u0454\u0442\u044C\u0441\u044F \u043E\u0434\u0440\u0430\u0437\u0443.",
     serverSavedLive: "\u0410\u0434\u0440\u0435\u0441\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u0437\u0431\u0435\u0440\u0435\u0436\u0435\u043D\u043E \u0439 \u0437\u0430\u0441\u0442\u043E\u0441\u043E\u0432\u0430\u043D\u043E.",
     saveServerBeforeLogin: "\u0417\u0431\u0435\u0440\u0435\u0436\u0456\u0442\u044C \u0430\u0434\u0440\u0435\u0441\u0443 \u0441\u0435\u0440\u0432\u0435\u0440\u0430, \u043F\u0435\u0440\u0448 \u043D\u0456\u0436 \u043F\u0440\u043E\u0434\u043E\u0432\u0436\u0438\u0442\u0438 \u0432\u0445\u0456\u0434 \u0430\u0431\u043E \u0441\u043F\u0430\u0440\u044E\u0432\u0430\u043D\u043D\u044F.",
     pairingLoginTab: "DSH Go",
@@ -4986,6 +5002,9 @@ If a code was sent, recover the original submission without changing it.`,
       ".dshRemoteSidebarEntry.isWide.hasUpdate .dshRemoteModeButton{border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary-new-colorprimary-new-color,var(--dsw-alias-brand-primary)) 20%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary-new-colorprimary-new-color,var(--dsw-alias-brand-primary)) 8%,transparent);color:var(--dsw-alias-brand-primary-new-colorprimary-new-color,var(--dsw-alias-brand-primary));font-weight:500}.dshRemoteSidebarEntry .dshRemoteModeButton,.dshRemoteAccountEntry .dshRemoteAccountEntryButton{position:relative}.dshRemoteUpdateSuffix{flex:0 0 auto;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;font-weight:500}.dshRemoteUpdateDot{position:absolute;inset-inline-end:2px;top:2px;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-brand-primary-new-colorprimary-new-color,var(--dsw-alias-brand-primary))}",
       ".dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteManageHosts{color:var(--dsw-alias-label-secondary);font-size:12px;text-decoration:none;white-space:nowrap}.dshRemoteManageHosts:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}",
       ".dshRemoteSectionTitle{flex:1}.dshRemoteSectionTitle>.dshRemoteConnectedMenu{margin-left:auto}",
+      // The fork's fast-mode row: its own line under the host section heading so
+      // upstream edits to `.dshRemoteSectionTitle` never move it.
+      ".dshRemoteFastModeSwitches{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:0 0 12px}",
       '.dshRemoteAcpSetting{display:block!important;width:100%;padding:0}.dshRemoteAcpSetting>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;cursor:pointer;list-style:none}.dshRemoteAcpSetting>summary::-webkit-details-marker{display:none}.dshRemoteAcpSetting>summary::after{content:"\u2304";color:var(--dsw-alias-label-secondary);transition:transform .18s ease-out}.dshRemoteAcpSetting[open]>summary::after{transform:rotate(180deg)}.dshRemoteAcpSummaryText{min-width:0}.dshRemoteAcpSummaryText strong{display:block}.dshRemoteAcpSummaryText p{margin:4px 0 0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.4}.dshRemoteAcpCheckLink{grid-column:2;grid-row:1;color:var(--dsw-alias-brand-primary);font-size:12px;text-decoration:underline;text-underline-offset:3px}.dshRemoteAcpCheckLink:hover{color:var(--dsw-alias-label-primary)}.dshRemoteAcpCheckResult{grid-column:3;grid-row:1;font-size:11px;line-height:1.4;white-space:nowrap}.dshRemoteAcpCheckResult.isPassed{color:var(--dsw-alias-state-success-primary)}.dshRemoteAcpCheckResult.isFailed{color:var(--dsw-alias-state-danger-primary)}.dshRemoteAcpList{display:flex;flex-direction:column;gap:0;margin-top:12px;padding-top:0;border-top:0}.dshRemoteAcpList>.dshRemoteAuthorizationSetting{display:grid;width:100%;grid-template-columns:minmax(0,1fr) auto auto auto auto;align-items:center;column-gap:18px;line-height:1.4}.dshRemoteAcpList>.dshRemoteAuthorizationSetting>span:first-child{min-width:0;line-height:1.4}.dshRemoteAcpList>.dshRemoteAuthorizationSetting>input{grid-column:4;grid-row:1}',
       ".dshRemoteAcpAddLink{align-self:flex-start;margin-top:12px;color:var(--dsw-alias-brand-primary);font-size:12px;text-decoration:underline;text-underline-offset:3px}.dshRemoteAcpAddForm{display:grid;grid-template-columns:minmax(100px,.8fr) minmax(140px,1fr) minmax(100px,1fr) auto;gap:8px;margin-top:12px}.dshRemoteAcpAddForm input{min-width:0;height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:inherit;padding:0 10px}.dshRemoteAcpAddForm button{border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);padding:0 12px;cursor:pointer;font:inherit;font-size:12px}.dshRemoteAcpAddForm button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteAcpRemoveLink{grid-column:3;grid-row:1;color:var(--dsw-alias-label-secondary);font-size:12px;text-decoration:underline;text-underline-offset:3px}.dshRemoteAcpRemoveLink:hover{color:var(--dsw-alias-state-danger-primary)}",
       ".dshRemoteAcpCheckResult.isPassed,.dshRemoteAcpCheckResult.isFailed{color:var(--dsw-alias-label-secondary)}",
@@ -5107,6 +5126,68 @@ If a code was sent, recover the original submission without changing it.`,
     };
   }
 
+  // packages/plugin/src/client/fast-mode-switches.ts
+  var TOGGLES = {
+    liteMode: { label: "liteMode", hint: "liteModeHint", endpoint: "settings.lite.set" },
+    forceRelay: { label: "forceRelay", hint: "forceRelayHint", endpoint: "settings.forceRelay.set" }
+  }, TOGGLE_ORDER = ["liteMode", "forceRelay"];
+  function createFastModeSwitches(React) {
+    function RemoteToggleSwitch(props) {
+      let meta = TOGGLES[props.configKey], [enabled, setEnabled] = React.useState(!1), [busy, setBusy] = React.useState(!1), [showHint, setShowHint] = React.useState(!1);
+      React.useEffect(() => {
+        props.control("settings.get").then((view) => setEnabled(view.config[props.configKey] === !0)).catch(() => {
+        });
+      }, [props.control, props.configKey]);
+      let toggle = async (next) => {
+        setEnabled(next), setBusy(!0);
+        try {
+          let view = await props.control(meta.endpoint, { enabled: next });
+          setEnabled(view.config[props.configKey] === !0);
+        } catch {
+          setEnabled(!next);
+        } finally {
+          setBusy(!1);
+        }
+      }, label = props.t(meta.label), hint = props.t(meta.hint);
+      return React.createElement(
+        "div",
+        {
+          className: "dshRemoteHostControlToggle",
+          style: { position: "relative" }
+        },
+        React.createElement("span", { title: hint, style: { cursor: "help" } }, label),
+        React.createElement("button", {
+          type: "button",
+          title: hint,
+          "aria-label": hint,
+          onClick: () => setShowHint(!showHint),
+          style: { width: "14px", height: "14px", borderRadius: "50%", border: "1px solid currentColor", background: "transparent", color: "inherit", fontSize: "10px", lineHeight: "12px", padding: "0", cursor: "pointer", opacity: 0.65, fontFamily: "inherit" }
+        }, "?"),
+        React.createElement("input", {
+          type: "checkbox",
+          role: "switch",
+          checked: enabled,
+          disabled: busy,
+          "aria-label": label,
+          onChange: (event) => void toggle(event.target.checked)
+        }),
+        showHint ? React.createElement("div", {
+          style: { position: "absolute", top: "100%", left: "0", zIndex: 30, marginTop: "6px", width: "280px", padding: "8px 10px", borderRadius: "6px", background: "rgba(24,24,28,0.94)", color: "#fff", fontSize: "12px", fontWeight: 400, lineHeight: "1.5", boxShadow: "0 4px 16px rgba(0,0,0,0.28)", whiteSpace: "normal" }
+        }, hint) : null
+      );
+    }
+    return function(props) {
+      return React.createElement("div", {
+        className: props.className ?? "dshRemoteFastModeSwitches"
+      }, TOGGLE_ORDER.map((key) => React.createElement(RemoteToggleSwitch, {
+        key,
+        control: props.control,
+        t: props.t,
+        configKey: key
+      })));
+    };
+  }
+
   // packages/plugin/src/client/workspaces.ts
   var import_qrcode3 = __toESM(require_browser(), 1);
 
@@ -5174,7 +5255,7 @@ If a code was sent, recover the original submission without changing it.`,
 
   // packages/plugin/src/client/workspaces.ts
   function createRemoteWorkspaceAction(React, portal) {
-    let ServerNotice = createServerNotice(React), HostPairingPanel = createHostPairingPanel(React), RemoteProgressView = createRemoteProgressView(React);
+    let ServerNotice = createServerNotice(React), HostPairingPanel = createHostPairingPanel(React), FastModeSwitches = createFastModeSwitches(React), RemoteProgressView = createRemoteProgressView(React);
     function RemoteAccountEntry(props) {
       let [container, setContainer] = React.useState(null), { portal: portal2 } = props;
       if (React.useEffect(
@@ -5550,7 +5631,7 @@ If a code was sent, recover the original submission without changing it.`,
             setError(messageOf(reason, t)), setBusy(!1);
           }
         }
-      }, reauth = status?.clientAuthRequired === !0, remoteLabel = reauth ? t("clientSignInAgain") : status?.mode === "remote" ? t("activeRemote", { name: status.target?.name ?? t("host") }) : t("remoteEntry"), remoteActionLabel = !reauth && status?.mode === "remote" ? `${remoteLabel} \xB7 ${t("exitRemote")}` : remoteLabel, visibleWorkspaces = showAllWorkspaces ? workspaces : workspaces.slice(0, 3), visibleCodexWorkspaces = showAllCodexWorkspaces ? codexWorkspaces : codexWorkspaces.slice(0, 3), visibleCursorWorkspaces = showAllCursorWorkspaces ? cursorWorkspaces : cursorWorkspaces.slice(0, 3), visibleAntigravityWorkspaces = showAllAntigravityWorkspaces ? antigravityWorkspaces : antigravityWorkspaces.slice(0, 3), visiblePiWorkspaces = showAllPiWorkspaces ? piWorkspaces : piWorkspaces.slice(0, 3), visibleOpencodeWorkspaces = showAllOpencodeWorkspaces ? opencodeWorkspaces : opencodeWorkspaces.slice(0, 3), visibleClaudeWorkspaces = showAllClaudeWorkspaces ? claudeWorkspaces : claudeWorkspaces.slice(0, 3), visibleHermesWorkspaces = showAllHermesWorkspaces ? hermesWorkspaces : hermesWorkspaces.slice(0, 3), codexAvailable = status?.remoteFeatures?.codex === !0, cursorAvailable = status?.remoteFeatures?.cursor === !0, antigravityAvailable = status?.remoteFeatures?.antigravity === !0, piAvailable = status?.remoteFeatures?.pi === !0, opencodeAvailable = status?.remoteFeatures?.opencode === !0, claudeAvailable = status?.remoteFeatures?.claude === !0, hermesAvailable = status?.remoteFeatures?.hermes === !0, rawUpdate = status?.update, updateInfo = rawUpdate !== void 0 && typeof rawUpdate.currentVersion == "string" && typeof rawUpdate.latestVersion == "string" ? rawUpdate : void 0, localUpdateAvailable = updateInfo !== void 0 && compareVersions(updateInfo.currentVersion, updateInfo.latestVersion) < 0, updateNotice = updateInfo !== void 0 && localUpdateAvailable ? t("updateAvailable", { latest: updateInfo.latestVersion, current: updateInfo.currentVersion }) : void 0, releasesUrl = "https://github.com/liguobao/ds-harness-remote/releases", canUpgradeInPlace = updateInfo?.upgrade === "ready", startLocalUpgrade = async () => {
+      }, reauth = status?.clientAuthRequired === !0, remoteLabel = reauth ? t("clientSignInAgain") : status?.mode === "remote" ? t("activeRemote", { name: status.target?.name ?? t("host") }) : t("remoteEntry"), remoteActionLabel = !reauth && status?.mode === "remote" ? `${remoteLabel} \xB7 ${t("exitRemote")}` : remoteLabel, visibleWorkspaces = showAllWorkspaces ? workspaces : workspaces.slice(0, 3), visibleCodexWorkspaces = showAllCodexWorkspaces ? codexWorkspaces : codexWorkspaces.slice(0, 3), visibleCursorWorkspaces = showAllCursorWorkspaces ? cursorWorkspaces : cursorWorkspaces.slice(0, 3), visibleAntigravityWorkspaces = showAllAntigravityWorkspaces ? antigravityWorkspaces : antigravityWorkspaces.slice(0, 3), visiblePiWorkspaces = showAllPiWorkspaces ? piWorkspaces : piWorkspaces.slice(0, 3), visibleOpencodeWorkspaces = showAllOpencodeWorkspaces ? opencodeWorkspaces : opencodeWorkspaces.slice(0, 3), visibleClaudeWorkspaces = showAllClaudeWorkspaces ? claudeWorkspaces : claudeWorkspaces.slice(0, 3), visibleHermesWorkspaces = showAllHermesWorkspaces ? hermesWorkspaces : hermesWorkspaces.slice(0, 3), codexAvailable = status?.remoteFeatures?.codex === !0, cursorAvailable = status?.remoteFeatures?.cursor === !0, antigravityAvailable = status?.remoteFeatures?.antigravity === !0, piAvailable = status?.remoteFeatures?.pi === !0, opencodeAvailable = status?.remoteFeatures?.opencode === !0, claudeAvailable = status?.remoteFeatures?.claude === !0, hermesAvailable = status?.remoteFeatures?.hermes === !0, rawUpdate = status?.update, updateInfo = rawUpdate !== void 0 && typeof rawUpdate.currentVersion == "string" && typeof rawUpdate.latestVersion == "string" ? rawUpdate : void 0, localUpdateAvailable = updateInfo !== void 0 && compareVersions(updateInfo.currentVersion, updateInfo.latestVersion) < 0, updateNotice = updateInfo !== void 0 && localUpdateAvailable ? t("updateAvailable", { latest: updateInfo.latestVersion, current: updateInfo.currentVersion }) : void 0, releasesUrl = "https://github.com/rainow/ds-harness-remote-fast/releases", canUpgradeInPlace = updateInfo?.upgrade === "ready", startLocalUpgrade = async () => {
         if (!(!canUpgradeInPlace || updateInfo === void 0)) {
           setUpgradePhase("running"), setUpgradeError(void 0);
           try {
@@ -6037,6 +6118,7 @@ If a code was sent, recover the original submission without changing it.`,
                       connectedMenu
                     )
                   ),
+                  React.createElement(FastModeSwitches, { control: props.control, t }),
                   React.createElement("div", {
                     className: `dshRemoteHostList${connectingHost === void 0 ? "" : " isCollapsed"}`,
                     "aria-busy": connectingHost === void 0 ? void 0 : !0
@@ -7030,7 +7112,7 @@ If a code was sent, recover the original submission without changing it.`,
   }
 
   // packages/plugin/src/client.ts
-  var clientModuleId = "ds-harness-remote", controlRouteBackoffStepsMs = [1e3, 2e3, 5e3, 1e4, 3e4], ControlRouteUnavailableError = class extends Error {
+  var clientModuleId = "ds-harness-remote-fast", controlRouteBackoffStepsMs = [1e3, 2e3, 5e3, 1e4, 3e4], ControlRouteUnavailableError = class extends Error {
     constructor(message) {
       super(message), this.name = "ControlRouteUnavailableError";
     }
@@ -7065,7 +7147,7 @@ If a code was sent, recover the original submission without changing it.`,
         }
       })(), RemotePluginOptions = createRemotePluginOptions(React);
       function RemotePluginSettingsAction(props) {
-        if (pluginSubjectPackageName(props.subject) !== "ds-harness-remote") return null;
+        if (!["ds-harness-remote-fast", "ds-harness-remote"].includes(pluginSubjectPackageName(props.subject) ?? "")) return null;
         let label = props.t("openPluginSettings");
         return React.createElement("button", {
           type: "button",
@@ -7433,7 +7515,7 @@ If a code was sent, recover the original submission without changing it.`,
           })
         }, RemoteWorkspaceAction)), ctx.slots.inject("plugins.row.config", () => ctx.slots.register({
           name: "plugins.row.config",
-          key: "ds-harness-remote#ds-harness-remote",
+          key: "ds-harness-remote-fast#ds-harness-remote",
           locale: localeNamespace,
           inject: () => ({
             control,
@@ -7444,7 +7526,7 @@ If a code was sent, recover the original submission without changing it.`,
           })
         }, RemotePluginOptions)), ctx.slots.inject("plugins.bundle.config", () => ctx.slots.register({
           name: "plugins.bundle.config",
-          key: "ds-harness-remote",
+          key: "ds-harness-remote-fast",
           locale: localeNamespace,
           inject: () => ({
             control,
