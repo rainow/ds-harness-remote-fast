@@ -4210,7 +4210,7 @@ var require_ip_codec = __commonJS({
       exports2.encode = encode21;
       exports2.familyOf = familyOf;
       exports2.name = void 0;
-      exports2.sizeOf = sizeOf;
+      exports2.sizeOf = sizeOf2;
       exports2.v6 = exports2.v4 = void 0;
       const v4Regex = /^(\d{1,3}\.){3,3}\d{1,3}$/;
       const v4Size = 4;
@@ -4352,17 +4352,17 @@ var require_ip_codec = __commonJS({
       exports2.v6 = v6;
       const name2 = "ip";
       exports2.name = name2;
-      function sizeOf(ip) {
+      function sizeOf2(ip) {
         if (v4.isFormat(ip)) return v4.size;
         if (v6.isFormat(ip)) return v6.size;
         throw Error(`Invalid ip address: ${ip}`);
       }
       function familyOf(string9) {
-        return sizeOf(string9) === v4.size ? 1 : 2;
+        return sizeOf2(string9) === v4.size ? 1 : 2;
       }
       function encode21(ip, buff, offset) {
         offset = ~~offset;
-        const size2 = sizeOf(ip);
+        const size2 = sizeOf2(ip);
         if (typeof buff === "function") {
           buff = buff(offset + size2);
         }
@@ -78596,6 +78596,18 @@ async function waitForResponder(inner, noise, signal) {
   });
 }
 
+// packages/plugin/src/relay-preference.ts
+var enabled = false;
+function isForceRelayEnabled() {
+  return enabled;
+}
+function setForceRelayEnabled(next) {
+  enabled = next === true;
+}
+function transportAttempts(forceRelay, rtcAvailable) {
+  return forceRelay || !rtcAvailable ? ["relay"] : ["direct", "turn", "relay"];
+}
+
 // packages/plugin/src/client-connection.ts
 var ClientConnection = class {
   constructor(context) {
@@ -78603,6 +78615,7 @@ var ClientConnection = class {
   }
   async connect(targetDeviceId, signal, options = {}) {
     signal?.throwIfAborted();
+    const forceRelay = isForceRelayEnabled() || this.context.config.forceRelay;
     const progressRunId = options.background ? -1 : this.context.connectionProgressRun + 1;
     if (!options.background) {
       this.context.connectionProgressRun = progressRunId;
@@ -78630,8 +78643,8 @@ var ClientConnection = class {
       if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
       const credentials = await this.context.server.authenticate(identity3);
       signal?.throwIfAborted();
-      const rtcFactory = this.context.config.forceRelay ? void 0 : await this.context.rtcFactoryProvider({ routeTargets: [this.context.server.baseUrl] }).catch(() => void 0);
-      if (!this.context.config.forceRelay && rtcFactory === void 0) {
+      const rtcFactory = forceRelay ? void 0 : await this.context.rtcFactoryProvider({ routeTargets: [this.context.server.baseUrl] }).catch(() => void 0);
+      if (!forceRelay && rtcFactory === void 0) {
         this.context.logger.warn("remote Harness WebRTC backend unavailable; using relay", {
           targetDeviceId: shortId(target3.deviceId)
         });
@@ -78645,7 +78658,7 @@ var ClientConnection = class {
           accessToken: credentials.accessToken,
           refreshAccessToken: async () => (await this.context.server.authenticate(identity3)).accessToken,
           targetDeviceId,
-          forceRelay: this.context.config.forceRelay || attempt === "relay",
+          forceRelay: forceRelay || attempt === "relay",
           preferredTransports: preferredTransportsForAttempt(attempt),
           negotiateTimeoutMs: attempt === "direct" ? DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS : void 0,
           ...rtcFactory === void 0 || attempt === "relay" ? {} : { rtcFactory },
@@ -78667,7 +78680,7 @@ var ClientConnection = class {
           }
         }
       );
-      const attempts = this.context.config.forceRelay || rtcFactory === void 0 ? ["relay"] : ["direct", "turn", "relay"];
+      const attempts = transportAttempts(forceRelay, rtcFactory !== void 0);
       let transport;
       for (const attempt of attempts) {
         webRtcFallback = false;
@@ -85490,6 +85503,7 @@ var entryConfigSchema = Schema.object({
   forceRelay: Schema.boolean(),
   rotatePinnedPeerKey: Schema.boolean(),
   logLevel: Schema.union(["debug", "info", "warn", "error"]),
+  liteMode: Schema.boolean().default(true),
   reconnect: Schema.union([
     Schema.boolean(),
     Schema.object({
@@ -85535,6 +85549,7 @@ var configSchema = external_exports.object({
   forceRelay: external_exports.boolean().optional(),
   rotatePinnedPeerKey: external_exports.boolean().optional(),
   logLevel: external_exports.enum(["debug", "info", "warn", "error"]).optional(),
+  liteMode: external_exports.boolean().optional(),
   reconnect: reconnectSchema.optional(),
   codex: external_exports.object({
     enabled: external_exports.boolean().optional(),
@@ -85579,6 +85594,7 @@ function resolveConfig(input4 = {}, env = process.env) {
     forceRelay: parsed.forceRelay ?? false,
     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
     logLevel: parsed.logLevel ?? "info",
+    liteMode: parsed.liteMode !== false,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,
@@ -85730,7 +85746,7 @@ function parseIpv6(value) {
 }
 
 // packages/plugin/src/version.ts
-var PLUGIN_VERSION = "0.6.5";
+var PLUGIN_VERSION = "0.6.5-fast.2";
 
 // packages/plugin/src/server-api.ts
 var TERMINAL_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
@@ -88115,7 +88131,7 @@ var ClientModeRuntime = class {
       ...this.clientAuthRequired && !this.connected && targetStatus.mode === "remote" ? { clientAuthRequired: true } : {},
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
       connectedTargetDeviceId: this.connected?.target.deviceId,
-      preferredTransports: this.config.forceRelay ? ["relay"] : ["lan", "p2p", "turn", "relay"],
+      preferredTransports: isForceRelayEnabled() || this.config.forceRelay ? ["relay"] : ["lan", "p2p", "turn", "relay"],
       ...this.connectionProgress === void 0 ? {} : {
         connectionProgress: {
           targetDeviceId: this.connectionProgress.targetDeviceId,
@@ -88262,9 +88278,9 @@ var ClientModeRuntime = class {
     const failure5 = results.find((result) => result.status === "rejected");
     if (failure5?.status === "rejected") throw failure5.reason;
   }
-  async setHostAuthorization(enabled) {
+  async setHostAuthorization(enabled3) {
     if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-    if (!enabled) {
+    if (!enabled3) {
       await this.host.clearHostAuthorization();
       return this.status();
     }
@@ -88926,7 +88942,113 @@ var ClientModeRuntime = class {
 
 // packages/plugin/src/control-runtime.ts
 import { hostname as hostname4 } from "node:os";
-import { execFileSync as execFileSync2 } from "node:child_process";
+import { execFile as execFile4 } from "node:child_process";
+import { promisify as promisify5 } from "node:util";
+
+// packages/plugin/src/lite-mode.ts
+var LITE_PROJECTION_KEEP_KEYS = /* @__PURE__ */ new Set([
+  // chrome that frames the conversation
+  "title",
+  "sessionTitle",
+  "conversationTitle",
+  "label",
+  "name",
+  "summary",
+  "modelSelection",
+  "model",
+  "agentPreset",
+  "imageLimits",
+  "sessionListMetadata",
+  // live state: permissions, questions, turn lifecycle
+  "permissions",
+  "remoteStatusKnown",
+  "codexStatus",
+  "inbox",
+  "agentTeam",
+  "turnOutline",
+  "turn",
+  "turnState",
+  "status",
+  "activeTurnId",
+  "userQuestions"
+]);
+var LITE_PROJECTION_MAX_BYTES = 16 * 1024;
+var LITE_PROJECTION_BUDGET_BYTES = 256 * 1024;
+var LITE_HISTORY_RECORDS = 10;
+var enabled2 = false;
+function isLiteModeEnabled() {
+  return enabled2;
+}
+function setLiteModeEnabled(next) {
+  enabled2 = next === true;
+}
+function isRecord12(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function sizeOf(value) {
+  try {
+    return Buffer.byteLength(JSON.stringify(value));
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+function filterLiteProjections(projections) {
+  if (!isRecord12(projections)) return projections;
+  const kept = {};
+  const candidates = [];
+  let used = 0;
+  for (const [key, value] of Object.entries(projections)) {
+    const size2 = sizeOf(value);
+    if (LITE_PROJECTION_KEEP_KEYS.has(key)) {
+      kept[key] = value;
+      used += size2;
+      continue;
+    }
+    if (size2 <= LITE_PROJECTION_MAX_BYTES) candidates.push({ key, value, size: size2 });
+  }
+  candidates.sort((left, right) => left.size - right.size);
+  for (const { key, value, size: size2 } of candidates) {
+    if (used + size2 > LITE_PROJECTION_BUDGET_BYTES) break;
+    kept[key] = value;
+    used += size2;
+  }
+  return kept;
+}
+function applyLiteMode(frame) {
+  if (!isRecord12(frame) || !isRecord12(frame.value)) return frame;
+  const layer = frame.value;
+  if (layer.type === "baseline" && isRecord12(layer.value)) {
+    const inner = layer.value;
+    if (!isRecord12(inner.projections)) return frame;
+    const projections = {};
+    for (const [sessionId, block] of Object.entries(inner.projections)) {
+      if (!isRecord12(block) || !isRecord12(block.values)) {
+        projections[sessionId] = block;
+        continue;
+      }
+      projections[sessionId] = { ...block, values: filterLiteProjections(block.values) };
+    }
+    return { ...frame, value: { ...layer, value: { ...inner, projections } } };
+  }
+  if (layer.type === "snapshot") {
+    const nested = isRecord12(layer.value);
+    const inner = { ...nested ? layer.value : layer };
+    if (Array.isArray(inner.records) && inner.records.length > LITE_HISTORY_RECORDS) {
+      inner.records = inner.records.slice(-LITE_HISTORY_RECORDS);
+      inner.hasMore = true;
+    }
+    if (isRecord12(inner.projections) && isRecord12(inner.projections.values)) {
+      inner.projections = { ...inner.projections, values: filterLiteProjections(inner.projections.values) };
+    }
+    return { ...frame, value: nested ? { ...layer, value: inner } : inner };
+  }
+  if (layer.type === "projection") {
+    const key = typeof layer.key === "string" ? layer.key : void 0;
+    if (key !== void 0 && LITE_PROJECTION_KEEP_KEYS.has(key)) return frame;
+    if (sizeOf(layer.value) > LITE_PROJECTION_MAX_BYTES) return void 0;
+  }
+  return frame;
+}
 
 // packages/plugin/src/pairing-contract.ts
 var pairingDeviceSchema = external_exports.object({
@@ -90212,7 +90334,7 @@ var CodexAppServerClient = class {
       this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted invalid JSON."));
       return;
     }
-    if (!isRecord12(value)) {
+    if (!isRecord13(value)) {
       this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted an invalid message."));
       return;
     }
@@ -90259,7 +90381,7 @@ var CodexAppServerClient = class {
 var CODEX_THREAD_UNMATERIALIZED = "CODEX_THREAD_UNMATERIALIZED";
 var CODEX_UNMATERIALIZED_THREAD_MESSAGE = "Codex thread has no turns yet.";
 function safeUpstreamError(value) {
-  if (!isRecord12(value) || typeof value.message !== "string") {
+  if (!isRecord13(value) || typeof value.message !== "string") {
     return new CodexAppServerError("CODEX_UPSTREAM_ERROR", "Codex App Server rejected the request.");
   }
   const message = value.message.toLowerCase();
@@ -90277,7 +90399,7 @@ function safeUpstreamError(value) {
     message.includes("not initialized") ? "Codex App Server is not initialized." : "Codex App Server rejected the request."
   );
 }
-function isRecord12(value) {
+function isRecord13(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -90468,6 +90590,7 @@ function compactBotRound(text) {
 var LIMIT = 512;
 var MARKER = "\n[Compact history: output omitted]";
 var ROUND_BUDGET = 128 * 1024;
+var UI_TOOL_NAMES = /* @__PURE__ */ new Set(["ui_render", "ui_patch", "ui_render_widget", "ui_compose"]);
 var object3 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 function preservedRound(text, budget) {
   if (budget.remaining < LIMIT) return void 0;
@@ -90481,17 +90604,23 @@ function summary2(value, budget) {
   if (text.length <= LIMIT) return text;
   return preservedRound(text, budget) ?? text.slice(0, LIMIT) + MARKER;
 }
-function toolValue(value, budget) {
-  if (Array.isArray(value)) return value.map((item) => toolValue(item, budget));
+function toolValue(value, budget, keepUiPayload = false) {
+  if (Array.isArray(value)) return value.map((item) => toolValue(item, budget, keepUiPayload));
   if (!object3(value)) return value;
   const result = { ...value };
+  const toolName = typeof value.name === "string" ? value.name : typeof value.toolName === "string" ? value.toolName : void 0;
+  const keepUi = keepUiPayload || toolName !== void 0 && UI_TOOL_NAMES.has(toolName);
   for (const [key, child] of Object.entries(value)) {
-    if (["input", "arguments", "output", "result", "rawInput", "rawOutput", "uiResultMeta", "meta", "argumentsDelta"].includes(key)) {
-      result[key] = typeof child === "string" ? summary2(child, budget) : { summary: summary2(child, budget) };
+    if (key === "meta" || key === "uiResultMeta") {
+      result[key] = child;
+    } else if (["input", "arguments", "output", "result", "rawInput", "rawOutput", "argumentsDelta"].includes(key)) {
+      if (keepUi && (key === "arguments" || key === "argumentsDelta" || key === "input")) result[key] = child;
+      else result[key] = typeof child === "string" ? summary2(child, budget) : { summary: summary2(child, budget) };
     } else if (key === "content" && Array.isArray(child)) {
       let previews = 0;
       const blocks = child.flatMap((block) => {
         if (object3(block) && (block.type === "tool-call" || block.type === "tool-result")) return [toolValue(block, budget)];
+        if (object3(block) && ["image", "file", "audio", "video"].includes(String(block.type))) return [block];
         const preview = object3(block) ? block.text ?? block : block;
         const round = typeof preview === "string" && preview.length > LIMIT && previews >= 2 ? preservedRound(preview, budget) : void 0;
         if (round !== void 0) return [{ type: "text", text: round }];
@@ -90852,15 +90981,15 @@ function decodeCanonicalBase64(value) {
   }
   return decoded;
 }
-function isRecord13(value) {
+function isRecord14(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function safeErrorCode2(error62) {
-  if (isRecord13(error62) && typeof error62.code === "string") return error62.code;
+  if (isRecord14(error62) && typeof error62.code === "string") return error62.code;
   return "UNKNOWN";
 }
 function safeMethod(input4) {
-  return isRecord13(input4) && typeof input4.method === "string" ? input4.method : "invalid";
+  return isRecord14(input4) && typeof input4.method === "string" ? input4.method : "invalid";
 }
 function concatChunks(chunks, totalBytes) {
   const output2 = new Uint8Array(totalBytes);
@@ -91415,14 +91544,14 @@ var CodexRemoteDomain = class {
       if (codexPermissionPresetFromResponse(result) !== params.permissionPreset) {
         await this.callUpstream("thread/settings/update", { threadId, ...settings });
         assertCurrent();
-        result = { ...isRecord14(result) ? result : {}, ...settings, sandbox: settings.sandboxPolicy };
+        result = { ...isRecord15(result) ? result : {}, ...settings, sandbox: settings.sandboxPolicy };
       }
     }
     await this.publishPermission(threadId, result);
     return result;
   }
   async publishPermission(threadId, value) {
-    const source = isRecord14(value) ? value : {};
+    const source = isRecord15(value) ? value : {};
     const threadSettings = { approvalPolicy: source.approvalPolicy, sandboxPolicy: source.sandboxPolicy ?? source.sandbox };
     await this.handleInbound({ kind: "notification", method: "thread/settings/updated", params: { threadId, threadSettings } });
   }
@@ -91511,7 +91640,7 @@ var CodexRemoteDomain = class {
       if (legacyThread === void 0 || legacyThread.id !== threadId || !Array.isArray(legacyThread.turns)) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Thread history.");
       }
-      if (legacyThread.turns.some((turn) => !isRecord14(turn) || typeof turn.id !== "string" || !Array.isArray(turn.items) || turn.items.some((item) => !isRecord14(item)))) {
+      if (legacyThread.turns.some((turn) => !isRecord15(turn) || typeof turn.id !== "string" || !Array.isArray(turn.items) || turn.items.some((item) => !isRecord15(item)))) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid Thread history content.");
       }
       return legacyThread;
@@ -91545,17 +91674,17 @@ var CodexRemoteDomain = class {
         }
         throw error62;
       }
-      if (!isRecord14(result) || !Array.isArray(result.data)) {
+      if (!isRecord15(result) || !Array.isArray(result.data)) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Turn page.");
       }
       const pageResult = result;
       const pageTurns = await Promise.all(result.data.map(async (rawTurn) => {
-        if (!isRecord14(rawTurn) || typeof rawTurn.id !== "string" || rawTurn.id.length === 0 || rawTurn.itemsView === "full" && !Array.isArray(rawTurn.items)) {
+        if (!isRecord15(rawTurn) || typeof rawTurn.id !== "string" || rawTurn.id.length === 0 || rawTurn.itemsView === "full" && !Array.isArray(rawTurn.items)) {
           throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid history Turn.");
         }
         const inlineFull = rawTurn.itemsView === "full" || rawTurn.itemsView === void 0 && itemsView === "full" && Array.isArray(rawTurn.items);
         const items = inlineFull ? rawTurn.items : await this.readThreadItems(threadId, rawTurn.id);
-        if (items.some((item) => !isRecord14(item))) {
+        if (items.some((item) => !isRecord15(item))) {
           throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid history Item.");
         }
         return { ...rawTurn, items };
@@ -91577,11 +91706,11 @@ var CodexRemoteDomain = class {
         sortDirection: "asc",
         ...cursor3 === void 0 ? {} : { cursor: cursor3 }
       });
-      if (!isRecord14(result) || !Array.isArray(result.data)) {
+      if (!isRecord15(result) || !Array.isArray(result.data)) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Item page.");
       }
       for (const entry of result.data) {
-        if (!isRecord14(entry) || !isRecord14(entry.item)) {
+        if (!isRecord15(entry) || !isRecord15(entry.item)) {
           throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid history Item.");
         }
         items.push(entry.item);
@@ -91649,7 +91778,7 @@ var CodexRemoteDomain = class {
     return [...this.peers.values()].some((peer) => peer.hasThreadSubscription(threadId));
   }
   resolveUpstreamApproval(params) {
-    if (!isRecord14(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
+    if (!isRecord15(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
     for (const [handle, approval] of this.approvals) {
       if (approval.upstreamId === params.requestId) this.approvals.delete(handle);
     }
@@ -91945,8 +92074,8 @@ function findImageBlock(value, attachmentId) {
     }
     return void 0;
   }
-  if (!isRecord14(value)) return void 0;
-  if (value.type === "image" && isRecord14(value.attachment) && value.attachment.attachmentId === attachmentId && typeof value.data === "string") {
+  if (!isRecord15(value)) return void 0;
+  if (value.type === "image" && isRecord15(value.attachment) && value.attachment.attachmentId === attachmentId && typeof value.data === "string") {
     return { attachment: value.attachment, data: value.data };
   }
   for (const child of Object.values(value)) {
@@ -91971,7 +92100,7 @@ function macOSCodexBinaryCandidates(userHome) {
     const codexCli = join6(chatGptApp, "Contents", "Resources", "codex-cli");
     try {
       const manifest = JSON.parse(readFileSync(join6(codexCli, "codex-package.json"), "utf8"));
-      if (!isRecord14(manifest) || typeof manifest.entrypoint !== "string" || manifest.entrypoint.length === 0) {
+      if (!isRecord15(manifest) || typeof manifest.entrypoint !== "string" || manifest.entrypoint.length === 0) {
         return [];
       }
       const candidate = join6(codexCli, manifest.entrypoint);
@@ -92005,24 +92134,24 @@ function windowsBundledCodexCandidates(userHome) {
   }
 }
 function parseCallEnvelope(input4) {
-  if (!isRecord14(input4) || typeof input4.method !== "string" || !("params" in input4) || Object.keys(input4).some((key) => key !== "method" && key !== "params")) {
+  if (!isRecord15(input4) || typeof input4.method !== "string" || !("params" in input4) || Object.keys(input4).some((key) => key !== "method" && key !== "params")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex call envelope is invalid.");
   }
   return { method: input4.method, params: input4.params };
 }
 function parseRespond(input4) {
-  if (!isRecord14(input4) || typeof input4.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input4.decision)) || Object.keys(input4).some((key) => key !== "requestHandle" && key !== "decision")) {
+  if (!isRecord15(input4) || typeof input4.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input4.decision)) || Object.keys(input4).some((key) => key !== "requestHandle" && key !== "decision")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex approval response is invalid.");
   }
   return input4;
 }
 function accountCanRun(result) {
-  if (!isRecord14(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
-  return result.requiresOpenaiAuth === false || isRecord14(result.account);
+  if (!isRecord15(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
+  return result.requiresOpenaiAuth === false || isRecord15(result.account);
 }
 function sanitizeAccount(result) {
-  if (!isRecord14(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
-  const account = isRecord14(result.account) ? result.account : void 0;
+  if (!isRecord15(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
+  const account = isRecord15(result.account) ? result.account : void 0;
   return {
     authenticated: account !== void 0 || result.requiresOpenaiAuth === false,
     requiresOpenaiAuth: result.requiresOpenaiAuth === true,
@@ -92035,11 +92164,11 @@ function sanitizeAccount(result) {
   };
 }
 function sanitizeThreadList(result) {
-  if (!isRecord14(result) || !Array.isArray(result.data)) {
+  if (!isRecord15(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
   }
   const data2 = result.data.flatMap((value) => {
-    if (!isRecord14(value) || typeof value.id !== "string") return [];
+    if (!isRecord15(value) || typeof value.id !== "string") return [];
     return [{
       id: value.id,
       ...typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {},
@@ -92051,7 +92180,7 @@ function sanitizeThreadList(result) {
       ...typeof value.updatedAt === "number" && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {},
       ...typeof value.archived === "boolean" ? { archived: value.archived } : {},
       ...typeof value.isPinned === "boolean" ? { isPinned: value.isPinned } : {},
-      ...isRecord14(value.status) ? { status: value.status } : {}
+      ...isRecord15(value.status) ? { status: value.status } : {}
     }];
   });
   return {
@@ -92061,18 +92190,18 @@ function sanitizeThreadList(result) {
   };
 }
 function filterThreadListByWorkspaceAuthority(result, authority) {
-  if (!isRecord14(result) || !Array.isArray(result.data)) {
+  if (!isRecord15(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
   }
   return {
     ...result,
-    data: result.data.map((record11) => isRecord14(record11) ? record11 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
+    data: result.data.map((record11) => isRecord15(record11) ? record11 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
   };
 }
 function sanitizeProject(value) {
-  if (!isRecord14(value) || typeof value.id !== "string" || typeof value.name !== "string") return void 0;
+  if (!isRecord15(value) || typeof value.id !== "string" || typeof value.name !== "string") return void 0;
   const roots = Array.isArray(value.roots) ? value.roots.flatMap((root2) => {
-    const path = isRecord14(root2) && typeof root2.path === "string" && root2.path.length > 0 ? root2.path : void 0;
+    const path = isRecord15(root2) && typeof root2.path === "string" && root2.path.length > 0 ? root2.path : void 0;
     return path === void 0 || !isAbsolute3(path) ? [] : [{ path }];
   }) : [];
   if (roots.length === 0) return void 0;
@@ -92086,7 +92215,7 @@ function sanitizeProject(value) {
   };
 }
 function sanitizeProjectList(result) {
-  if (!isRecord14(result) || !Array.isArray(result.data)) {
+  if (!isRecord15(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid project list.");
   }
   const data2 = result.data.flatMap((value) => sanitizeProject(value) ?? []);
@@ -92096,7 +92225,7 @@ function sanitizeProjectList(result) {
   };
 }
 function sanitizeProjectCreate(result) {
-  const project2 = isRecord14(result) ? sanitizeProject(result.project) : void 0;
+  const project2 = isRecord15(result) ? sanitizeProject(result.project) : void 0;
   if (project2 === void 0) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid created project.");
   }
@@ -92128,23 +92257,23 @@ function codexDirectoryCrumbs(root2, path) {
   return crumbs2;
 }
 function extractThread(result) {
-  return isRecord14(result) && isRecord14(result.thread) ? result.thread : void 0;
+  return isRecord15(result) && isRecord15(result.thread) ? result.thread : void 0;
 }
 function extractTurnId(result) {
-  if (!isRecord14(result)) return void 0;
+  if (!isRecord15(result)) return void 0;
   if (typeof result.turnId === "string" && result.turnId.length > 0) return result.turnId;
-  if (isRecord14(result.turn) && typeof result.turn.id === "string" && result.turn.id.length > 0) return result.turn.id;
+  if (isRecord15(result.turn) && typeof result.turn.id === "string" && result.turn.id.length > 0) return result.turn.id;
   return void 0;
 }
 function extractThreadId(params) {
-  if (!isRecord14(params)) return void 0;
+  if (!isRecord15(params)) return void 0;
   if (typeof params.threadId === "string") return params.threadId;
-  if (isRecord14(params.thread) && typeof params.thread.id === "string") return params.thread.id;
-  if (isRecord14(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
+  if (isRecord15(params.thread) && typeof params.thread.id === "string") return params.thread.id;
+  if (isRecord15(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
   return void 0;
 }
 function isTerminalThreadStatus(params) {
-  if (!isRecord14(params) || !isRecord14(params.status) || typeof params.status.type !== "string") return false;
+  if (!isRecord15(params) || !isRecord15(params.status) || typeof params.status.type !== "string") return false;
   return params.status.type !== "active";
 }
 function optionalInteger3(value) {
@@ -92186,13 +92315,13 @@ function mapCodexImageInputs(params) {
   return {
     ...params,
     input: params.input.map((value) => {
-      if (!isRecord14(value) || value.type !== "image" || typeof value.mediaType !== "string" || typeof value.data !== "string") return value;
+      if (!isRecord15(value) || value.type !== "image" || typeof value.mediaType !== "string" || typeof value.data !== "string") return value;
       return { type: "image", url: `data:${value.mediaType};base64,${value.data}` };
     })
   };
 }
 function sanitizeApprovalParams(params, requestHandle) {
-  if (!isRecord14(params)) return { requestHandle };
+  if (!isRecord15(params)) return { requestHandle };
   const safe = { ...params };
   delete safe.proposedExecpolicyAmendment;
   delete safe.additionalPermissions;
@@ -92233,7 +92362,7 @@ function isProjectListFallbackError(error62) {
 function canTryNextBinary(error62) {
   return !(error62 instanceof RpcError) || !["CODEX_AUTH_REQUIRED", "CODEX_CLOSED"].includes(error62.code);
 }
-function isRecord14(value) {
+function isRecord15(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function maskId(value) {
@@ -92398,7 +92527,7 @@ var CursorAcpClient = class {
   async call(method, params, timeoutMs) {
     if (!this.ready) throw new CursorAcpError(this.code("UNAVAILABLE"), `${this.adapterLabel} ACP is not ready.`);
     const backend = this.options.modelBackend ?? (this.options.authenticationMethod === null ? void 0 : "cursor");
-    const id6 = isRecord15(params) && typeof params.sessionId === "string" ? params.sessionId : void 0;
+    const id6 = isRecord16(params) && typeof params.sessionId === "string" ? params.sessionId : void 0;
     if (backend && (method === "dsh/sessionModels" || method === "dsh/selectModel")) {
       const state2 = id6 ? this.modelStates.get(id6) : void 0;
       if (!state2 || !id6) throw new CursorAcpError("ACP_SESSION_NOT_LOADED", "Load the ACP session before selecting a model.");
@@ -92439,7 +92568,7 @@ var CursorAcpClient = class {
     const budget = timeoutMs ?? (method === "session/prompt" ? ACP_PROMPT_TIMEOUT_MS : ACP_REQUEST_TIMEOUT_MS);
     const result = await this.request(method, params, budget);
     if (backend && (method === "session/new" || method === "session/load")) {
-      const returnedId = isRecord15(result) && typeof result.sessionId === "string" ? result.sessionId : void 0;
+      const returnedId = isRecord16(result) && typeof result.sessionId === "string" ? result.sessionId : void 0;
       const sessionId = method === "session/load" ? id6 : returnedId;
       if (!this.ready || !sessionId || returnedId && returnedId !== sessionId) throw new CursorAcpError("ACP_INVALID_SESSION", "ACP returned an invalid session.");
       const state2 = new AcpSessionModelState(backend);
@@ -92603,7 +92732,7 @@ var CursorAcpClient = class {
       this.handleProcessFailure(this.code("INVALID_RESPONSE"), new Error(`${this.adapterLabel} ACP emitted invalid JSON.`));
       return;
     }
-    if (!isRecord15(value)) {
+    if (!isRecord16(value)) {
       this.handleProcessFailure(this.code("INVALID_RESPONSE"), new Error(`${this.adapterLabel} ACP emitted an invalid message.`));
       return;
     }
@@ -92620,7 +92749,7 @@ var CursorAcpClient = class {
     if (typeof value.method !== "string" || value.method.length === 0 || value.method.length > 160) return;
     const params = value.params ?? {};
     const inbound = value.method !== "session/update" && (typeof value.id === "string" || typeof value.id === "number") ? { kind: "request", id: value.id, method: value.method, params } : { kind: "notification", method: value.method, params };
-    if (inbound.kind === "notification" && inbound.method === "session/update" && isRecord15(params) && typeof params.sessionId === "string") {
+    if (inbound.kind === "notification" && inbound.method === "session/update" && isRecord16(params) && typeof params.sessionId === "string") {
       this.modelStates.get(params.sessionId)?.update(params.update);
     }
     for (const handler of this.inboundHandlers) handler(inbound);
@@ -92652,7 +92781,7 @@ var CursorAcpClient = class {
   }
 };
 function safeUpstreamError2(value, label = "Cursor") {
-  if (!isRecord15(value) || typeof value.message !== "string") return `${label} ACP rejected the request.`;
+  if (!isRecord16(value) || typeof value.message !== "string") return `${label} ACP rejected the request.`;
   const message = value.message.toLowerCase();
   if (message.includes("auth") || message.includes("login") || message.includes("api key")) {
     return `${label} ACP authentication failed.`;
@@ -92660,7 +92789,7 @@ function safeUpstreamError2(value, label = "Cursor") {
   if (message.includes("not initialized")) return `${label} ACP is not initialized.`;
   return `${label} ACP rejected the request.`;
 }
-function isRecord15(value) {
+function isRecord16(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -93469,10 +93598,10 @@ var RemoteTerminalState = class {
   }
 };
 var RemoteTerminalController = class {
-  constructor(shared, spawn7, enabled, scopeError) {
+  constructor(shared, spawn7, enabled3, scopeError) {
     this.shared = shared;
     this.spawn = spawn7;
-    this.enabled = enabled;
+    this.enabled = enabled3;
     this.scopeError = scopeError;
   }
   subscriptions = /* @__PURE__ */ new Set();
@@ -93857,8 +93986,8 @@ var WorkspaceBridge = class {
   }
 };
 function argsOf(payload) {
-  const value = isRecord16(payload) ? payload : {};
-  return isRecord16(value.args) ? value.args : value;
+  const value = isRecord17(payload) ? payload : {};
+  return isRecord17(value.args) ? value.args : value;
 }
 function toolScope(endpoint, args) {
   const session2 = args.agentId ?? args.sessionId;
@@ -93868,13 +93997,13 @@ function toolScope(endpoint, args) {
   }
   return session2;
 }
-function isRecord16(value) {
+function isRecord17(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function byteOrLineRange(args) {
-  const options = isRecord16(args.options) ? args.options : void 0;
-  if (options !== void 0 && isRecord16(options.range)) return options.range;
-  return isRecord16(args.range) ? args.range : args;
+  const options = isRecord17(args.options) ? args.options : void 0;
+  if (options !== void 0 && isRecord17(options.range)) return options.range;
+  return isRecord17(args.range) ? args.range : args;
 }
 function readOffset(args) {
   const range = byteOrLineRange(args);
@@ -93907,8 +94036,8 @@ var TERMINAL_CALLS = /* @__PURE__ */ new Set([
 var TERMINAL_STREAMS = /* @__PURE__ */ new Set(["terminal/follow", "terminal/retain"]);
 var id4 = external_exports.string().regex(/^[A-Za-z0-9_:-]{1,256}$/);
 var TerminalPolicy = class _TerminalPolicy {
-  constructor(enabled, deviceId, owners) {
-    this.enabled = enabled;
+  constructor(enabled3, deviceId, owners) {
+    this.enabled = enabled3;
     this.deviceId = deviceId;
     this.owners = owners;
     this.claims = _TerminalPolicy.claims.get(owners) ?? /* @__PURE__ */ new Map();
@@ -95416,7 +95545,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
   busy = /* @__PURE__ */ new Set();
   async call(method, params, timeoutMs) {
     if (!this.ready) throw new OpencodeAcpError("OPENCODE_UNAVAILABLE", "OpenCode ACP is not ready.");
-    const p = isRecord17(params) ? params : {};
+    const p = isRecord18(params) ? params : {};
     const id6 = typeof p.sessionId === "string" ? p.sessionId : void 0;
     if (id6 && this.archivingSessions.has(id6)) throw new OpencodeAcpError("ACP_SESSION_BUSY", "The OpenCode session is being archived.");
     if (id6 && this.archivedSessions.has(id6) && ["session/load", "session/prompt", "dsh/selectModel"].includes(method)) throw new OpencodeAcpError("ACP_SESSION_ARCHIVED", "This OpenCode session is archived.");
@@ -95466,7 +95595,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
     }
     const result = await this.request(method, params, budget);
     const nativeApi = this.nativeApi;
-    if (method === "session/list" && nativeApi && isRecord17(result) && Array.isArray(result.sessions)) {
+    if (method === "session/list" && nativeApi && isRecord18(result) && Array.isArray(result.sessions)) {
       if (result.sessions.length > 1e3) throw new OpencodeAcpError("INVALID_MESSAGE", "The OpenCode catalog page is too large.");
       const items = result.sessions;
       const archivedItems = /* @__PURE__ */ new Map();
@@ -95476,7 +95605,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
           const index = next++;
           if (index >= items.length) return;
           const item = items[index];
-          if (!isRecord17(item) || typeof item.sessionId !== "string" || typeof item.cwd !== "string") continue;
+          if (!isRecord18(item) || typeof item.sessionId !== "string" || typeof item.cwd !== "string") continue;
           const cwd2 = await realpath4(item.cwd).catch(() => void 0);
           if (!cwd2) continue;
           const archived = await nativeApi.isArchived(item.sessionId, cwd2);
@@ -95492,7 +95621,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
   }
   async loadSession(method, params, budget, sessionId) {
     const result = await this.request(method, params, budget);
-    const returnedId = isRecord17(result) && typeof result.sessionId === "string" ? result.sessionId : void 0;
+    const returnedId = isRecord18(result) && typeof result.sessionId === "string" ? result.sessionId : void 0;
     const id6 = sessionId ?? returnedId;
     if (!this.ready || !id6 || sessionId && returnedId && returnedId !== sessionId) {
       throw new OpencodeAcpError("ACP_INVALID_SESSION", "OpenCode returned an invalid session.");
@@ -95670,7 +95799,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
       this.handleProcessFailure("OPENCODE_INVALID_RESPONSE", new Error("OpenCode ACP emitted invalid JSON."));
       return;
     }
-    if (!isRecord17(value)) {
+    if (!isRecord18(value)) {
       this.handleProcessFailure("OPENCODE_INVALID_RESPONSE", new Error("OpenCode ACP emitted an invalid message."));
       return;
     }
@@ -95687,11 +95816,11 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
     if (typeof value.method !== "string" || value.method.length === 0 || value.method.length > 160) return;
     const params = value.params ?? {};
     const inbound = value.method !== "session/update" && (typeof value.id === "string" || typeof value.id === "number") ? { kind: "request", id: value.id, method: value.method, params } : { kind: "notification", method: value.method, params };
-    if (inbound.kind === "request" && isRecord17(params) && typeof params.sessionId === "string" && this.loads.has(params.sessionId)) {
+    if (inbound.kind === "request" && isRecord18(params) && typeof params.sessionId === "string" && this.loads.has(params.sessionId)) {
       void this.respondError(inbound.id, -32600, "OpenCode session is not loaded.").catch(() => void 0);
       return;
     }
-    if (inbound.kind === "notification" && inbound.method === "session/update" && isRecord17(params) && typeof params.sessionId === "string") {
+    if (inbound.kind === "notification" && inbound.method === "session/update" && isRecord18(params) && typeof params.sessionId === "string") {
       this.models.get(params.sessionId)?.update(params.update);
       if (this.loads.has(params.sessionId) && !this.options.historyReader) return;
     }
@@ -95727,7 +95856,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
   }
 };
 function safeUpstreamError3(value) {
-  if (!isRecord17(value) || typeof value.message !== "string") return "OpenCode ACP rejected the request.";
+  if (!isRecord18(value) || typeof value.message !== "string") return "OpenCode ACP rejected the request.";
   const message = value.message.toLowerCase();
   if (message.includes("auth") || message.includes("login") || message.includes("api key")) {
     return "OpenCode ACP authentication failed.";
@@ -95735,7 +95864,7 @@ function safeUpstreamError3(value) {
   if (message.includes("not initialized")) return "OpenCode ACP is not initialized.";
   return "OpenCode ACP rejected the request.";
 }
-function isRecord17(value) {
+function isRecord18(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -95980,15 +96109,15 @@ async function querySqliteJson(dbPath, sql, params = []) {
   } catch {
   }
   try {
-    const { execFile: execFile4 } = await import("node:child_process");
-    const { promisify: promisify5 } = await import("node:util");
-    const execFileAsync3 = promisify5(execFile4);
+    const { execFile: execFile5 } = await import("node:child_process");
+    const { promisify: promisify6 } = await import("node:util");
+    const execFileAsync4 = promisify6(execFile5);
     let formattedSql = sql;
     for (const p of params) {
       const val = typeof p === "number" ? String(p) : `'${String(p).replace(/'/g, "''")}'`;
       formattedSql = formattedSql.replace("?", val);
     }
-    const { stdout } = await execFileAsync3("sqlite3", [dbPath, "-json", formattedSql]);
+    const { stdout } = await execFileAsync4("sqlite3", [dbPath, "-json", formattedSql]);
     return JSON.parse(stdout || "[]");
   } catch {
     return [];
@@ -96485,15 +96614,15 @@ function decodeCanonicalBase642(value) {
   }
   return decoded;
 }
-function isRecord18(value) {
+function isRecord19(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function safeErrorCode3(error62) {
-  if (isRecord18(error62) && typeof error62.code === "string") return error62.code;
+  if (isRecord19(error62) && typeof error62.code === "string") return error62.code;
   return "UNKNOWN";
 }
 function safeMethod2(input4) {
-  return isRecord18(input4) && typeof input4.method === "string" ? input4.method : "invalid";
+  return isRecord19(input4) && typeof input4.method === "string" ? input4.method : "invalid";
 }
 function concatChunks2(chunks, totalBytes) {
   const output2 = new Uint8Array(totalBytes);
@@ -96900,7 +97029,7 @@ var AcpRemoteGateway = class {
       const requested = typeof call.params.backend === "string" ? call.params.backend : selected ?? this.defaultBackend();
       if (selected !== void 0 && selected !== requested) throw new RpcError("INVALID_MESSAGE", "The ACP session backend does not match.");
       this.requireAcp(requested);
-      if (Array.isArray(call.params.prompt) && call.params.prompt.some((part) => isRecord19(part) && part.type === "image") && requested !== "antigravity" && requested !== "hermes") throw new RpcError("METHOD_NOT_ALLOWED", "This ACP backend does not accept image prompts.");
+      if (Array.isArray(call.params.prompt) && call.params.prompt.some((part) => isRecord20(part) && part.type === "image") && requested !== "antigravity" && requested !== "hermes") throw new RpcError("METHOD_NOT_ALLOWED", "This ACP backend does not accept image prompts.");
       this.sessionBackends.set(sessionId, requested);
     }
     if (call.method === "session/load") {
@@ -97026,7 +97155,7 @@ var AcpRemoteGateway = class {
       const result = await task.client.call("session/prompt", params);
       await this.inboundChain;
       if (!current()) return;
-      const stopReason = isRecord19(result) && typeof result.stopReason === "string" ? result.stopReason : "end_turn";
+      const stopReason = isRecord20(result) && typeof result.stopReason === "string" ? result.stopReason : "end_turn";
       const catchUp = takeTurnCatchUp(this.turnCatchUp, sessionId);
       this.logger.info("ACP prompt finished", {
         sessionId: shortSessionId(sessionId),
@@ -97469,7 +97598,7 @@ var AcpRemoteGateway = class {
       await peer.publishInbound(sessionId, {
         method: message.method,
         params: {
-          ...isRecord19(message.params) ? message.params : {},
+          ...isRecord20(message.params) ? message.params : {},
           requestHandle,
           sessionId,
           upstreamMethod: message.method
@@ -97497,8 +97626,8 @@ var AcpRemoteGateway = class {
   recordTurnCatchUp(sessionId, frame) {
     const list2 = this.turnCatchUp.get(sessionId);
     if (list2 === void 0 || frame.method !== "session/update") return;
-    const params = isRecord19(frame.params) ? frame.params : void 0;
-    const update = params !== void 0 && isRecord19(params.update) ? params.update : params;
+    const params = isRecord20(frame.params) ? frame.params : void 0;
+    const update = params !== void 0 && isRecord20(params.update) ? params.update : params;
     const kind = update !== void 0 && typeof update.sessionUpdate === "string" ? update.sessionUpdate : void 0;
     if (kind === void 0 || !CATCH_UP_SESSION_UPDATES.has(kind)) return;
     list2.push({ method: frame.method, params: frame.params });
@@ -97678,11 +97807,11 @@ var AcpRemoteGateway = class {
     for (let page = 0; page < 100; page++) {
       const result = await client.call("session/list", { ...cwd2 ? { cwd: cwd2 } : {}, ...cursor3 ? { cursor: cursor3 } : {} });
       assertCurrent();
-      if (!isRecord19(result) || !Array.isArray(result.sessions) || result.nextCursor != null && (typeof result.nextCursor !== "string" || result.nextCursor.length === 0)) {
+      if (!isRecord20(result) || !Array.isArray(result.sessions) || result.nextCursor != null && (typeof result.nextCursor !== "string" || result.nextCursor.length === 0)) {
         throw new RpcError("INVALID_MESSAGE", "The ACP session catalog response is invalid.");
       }
       for (const item of result.sessions) {
-        if (!isRecord19(item) || typeof item.sessionId !== "string" || typeof item.cwd !== "string") continue;
+        if (!isRecord20(item) || typeof item.sessionId !== "string" || typeof item.cwd !== "string") continue;
         const canonical = await this.requireExistingDirectory(item.cwd).catch(() => void 0);
         assertCurrent();
         if (!canonical || cwd2 && canonical !== cwd2) continue;
@@ -97779,24 +97908,24 @@ var AcpRemoteGateway = class {
   }
 };
 function parseCallEnvelope2(input4) {
-  if (!isRecord19(input4) || typeof input4.method !== "string") {
+  if (!isRecord20(input4) || typeof input4.method !== "string") {
     throw new RpcError("INVALID_MESSAGE", "The Cursor call envelope is invalid.");
   }
   return { method: input4.method, params: input4.params ?? {} };
 }
 function parseRespondEnvelope(input4) {
-  if (!isRecord19(input4) || typeof input4.requestHandle !== "string" || input4.requestHandle.length === 0 || Object.keys(input4).some((key) => !["requestHandle", "decision", "result"].includes(key)) || typeof input4.decision !== "string" || !["allow-once", "reject-once", "cancel"].includes(input4.decision)) {
+  if (!isRecord20(input4) || typeof input4.requestHandle !== "string" || input4.requestHandle.length === 0 || Object.keys(input4).some((key) => !["requestHandle", "decision", "result"].includes(key)) || typeof input4.decision !== "string" || !["allow-once", "reject-once", "cancel"].includes(input4.decision)) {
     throw new RpcError("INVALID_MESSAGE", "The ACP respond envelope is invalid.");
   }
   return input4;
 }
 function permissionOptions(params) {
-  if (!isRecord19(params) || !Array.isArray(params.options) || params.options.length === 0) {
+  if (!isRecord20(params) || !Array.isArray(params.options) || params.options.length === 0) {
     throw new Error("Missing permission options");
   }
   const ids = /* @__PURE__ */ new Set();
   const options = params.options.map((option) => {
-    if (!isRecord19(option) || typeof option.optionId !== "string" || !option.optionId || typeof option.kind !== "string" || !["allow_once", "allow_always", "reject_once", "reject_always"].includes(option.kind) || ids.has(option.optionId)) throw new Error("Invalid permission option");
+    if (!isRecord20(option) || typeof option.optionId !== "string" || !option.optionId || typeof option.kind !== "string" || !["allow_once", "allow_always", "reject_once", "reject_always"].includes(option.kind) || ids.has(option.optionId)) throw new Error("Invalid permission option");
     ids.add(option.optionId);
     return { kind: option.kind, optionId: option.optionId };
   });
@@ -97817,21 +97946,21 @@ function mapPermissionDecision(params, pending) {
   }
   const outcome = pending.method === "cursor/create_plan" ? params.decision === "allow-once" ? "accepted" : params.decision === "cancel" ? "cancelled" : "rejected" : "cancelled";
   if (params.result !== void 0) {
-    if (!isRecord19(params.result) || Object.keys(params.result).length !== 1 || !isRecord19(params.result.outcome) || Object.keys(params.result.outcome).length !== 1 || params.result.outcome.outcome !== outcome) throw invalid();
+    if (!isRecord20(params.result) || Object.keys(params.result).length !== 1 || !isRecord20(params.result.outcome) || Object.keys(params.result.outcome).length !== 1 || params.result.outcome.outcome !== outcome) throw invalid();
   }
   return { outcome: { outcome } };
 }
 function readSessionId(value) {
-  if (!isRecord19(value)) return void 0;
+  if (!isRecord20(value)) return void 0;
   return typeof value.sessionId === "string" ? value.sessionId : void 0;
 }
 function readNestedSessionId(value) {
-  if (!isRecord19(value)) return void 0;
-  if (isRecord19(value.update) && typeof value.update.sessionId === "string") return value.update.sessionId;
+  if (!isRecord20(value)) return void 0;
+  if (isRecord20(value.update) && typeof value.update.sessionId === "string") return value.update.sessionId;
   return void 0;
 }
 function sanitizeSessionResult(value) {
-  if (!isRecord19(value)) return value;
+  if (!isRecord20(value)) return value;
   const next = {};
   for (const [key, entry] of Object.entries(value)) {
     if (key === "sessionId" || key === "stopReason" || key === "mode") next[key] = entry;
@@ -97891,7 +98020,7 @@ function takeTurnCatchUp(turnCatchUp, sessionId) {
   turnCatchUp.delete(sessionId);
   return list2;
 }
-function isRecord19(value) {
+function isRecord20(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -98234,6 +98363,7 @@ async function installOrConfigureBackend(backendId, options = {}) {
 }
 
 // packages/plugin/src/control-runtime.ts
+var execFileAsync3 = promisify5(execFile4);
 var PluginControlRuntime = class {
   constructor(config2, identityDirectory, settings, client, host, switchServer, updates, useDefaultStorage = false, logStore) {
     this.config = config2;
@@ -98301,6 +98431,8 @@ var PluginControlRuntime = class {
       }
       if (endpoint === "settings.development.set") return ok3(await this.setDevelopment(payload));
       if (endpoint === "settings.appearance.set") return ok3(await this.setAppearance(payload));
+      if (endpoint === "settings.lite.set") return ok3(await this.setLite(payload));
+      if (endpoint === "settings.forceRelay.set") return ok3(await this.setForceRelay(payload));
       if (endpoint === "settings.get") return ok3(await this.settingsView());
       if (endpoint === "settings.configure") return ok3(await this.configure(payload));
       if (endpoint === "settings.server.set") return ok3(await this.setServer(payload));
@@ -98539,6 +98671,38 @@ var PluginControlRuntime = class {
     this.clearStartupFailure();
     return { ...await this.settingsView(), applies: "live" };
   }
+  async setLite(payload) {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const enabled3 = record9(payload).enabled;
+    if (typeof enabled3 !== "boolean") {
+      throw new ClientModeError("INVALID_MESSAGE", "The lite mode switch must be a boolean.");
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()));
+    await this.settings.replace({ ...current, liteMode: enabled3 });
+    setLiteModeEnabled(enabled3);
+    return { ...await this.settingsView(), applies: "live" };
+  }
+  /**
+   * Relay-only preference. Applies to new connections; the Host re-dials the
+   * Server so its advertised capabilities (and the Server-side negotiation)
+   * drop LAN/P2P/TURN right away.
+   */
+  async setForceRelay(payload) {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const enabled3 = record9(payload).enabled;
+    if (typeof enabled3 !== "boolean") {
+      throw new ClientModeError("INVALID_MESSAGE", "The relay preference must be a boolean.");
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()));
+    await this.settings.replace({ ...current, forceRelay: enabled3 });
+    setForceRelayEnabled(enabled3);
+    this.host?.reconnectHost();
+    return { ...await this.settingsView(), applies: "live" };
+  }
   async setRole(payload) {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
@@ -98626,27 +98790,27 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const enabled = record9(payload).enabled;
-    if (typeof enabled !== "boolean") {
+    const enabled3 = record9(payload).enabled;
+    if (typeof enabled3 !== "boolean") {
       throw new ClientModeError("INVALID_MESSAGE", "Codex Remote enabled must be a boolean.");
     }
-    return this.setAcp({ backend: "codex", enabled });
+    return this.setAcp({ backend: "codex", enabled: enabled3 });
   }
   async setCursor(payload) {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const enabled = record9(payload).enabled;
-    if (typeof enabled !== "boolean") {
+    const enabled3 = record9(payload).enabled;
+    if (typeof enabled3 !== "boolean") {
       throw new ClientModeError("INVALID_MESSAGE", "Cursor Remote enabled must be a boolean.");
     }
     const current = editableConfig(resolveConfig(this.settings.get()));
     const next = resolveConfig({
       ...current,
-      cursor: { ...current.cursor, enabled },
+      cursor: { ...current.cursor, enabled: enabled3 },
       acp: {
-        enabled: enabled || current.acp?.enabled === true,
-        backends: current.acp?.backends?.map((item) => item.id === "cursor" ? { ...item, enabled } : item)
+        enabled: enabled3 || current.acp?.enabled === true,
+        backends: current.acp?.backends?.map((item) => item.id === "cursor" ? { ...item, enabled: enabled3 } : item)
       }
     });
     await this.settings.replace(editableConfig(next));
@@ -98657,16 +98821,16 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     const value = record9(payload);
     const backend = value.backend;
-    const enabled = value.enabled;
-    if (typeof backend !== "string" || typeof enabled !== "boolean") throw new ClientModeError("INVALID_MESSAGE", "ACP backend and enabled are required.");
+    const enabled3 = value.enabled;
+    if (typeof backend !== "string" || typeof enabled3 !== "boolean") throw new ClientModeError("INVALID_MESSAGE", "ACP backend and enabled are required.");
     const current = resolveConfig(this.settings.get());
     if (!current.acp?.backends.some((item) => item.id === backend)) throw new ClientModeError("INVALID_MESSAGE", "Unknown ACP backend.");
-    const backends = current.acp.backends.map((item) => item.id === backend ? { ...item, enabled } : item);
+    const backends = current.acp.backends.map((item) => item.id === backend ? { ...item, enabled: enabled3 } : item);
     await this.settings.replace({
       ...editableConfig(current),
-      ...backend === "cursor" ? { cursor: { ...current.cursor, enabled } } : {},
-      ...backend === "codex" ? { codex: { ...current.codex, enabled } } : {},
-      acp: { enabled: enabled || current.acp.enabled, backends }
+      ...backend === "cursor" ? { cursor: { ...current.cursor, enabled: enabled3 } } : {},
+      ...backend === "codex" ? { codex: { ...current.codex, enabled: enabled3 } } : {},
+      acp: { enabled: enabled3 || current.acp.enabled, backends }
     });
     await this.host?.setAgentBackends?.(resolveConfig(this.settings.get()));
     return { ...await this.settingsView(), applies: "live" };
@@ -98808,12 +98972,17 @@ var PluginControlRuntime = class {
       writable: this.settings !== void 0,
       applies: "restart",
       associations,
-      acpAvailability: Object.fromEntries((config2.acp?.backends ?? []).map((item) => [item.id, backendCommandAvailable(item.id, item.command ?? "")])),
+      acpAvailability: await this.acpAvailability(config2.acp?.backends ?? []),
       ...association === void 0 ? {} : { association },
       ...this.startupFailure === void 0 ? {} : {
         startupError: safeStartupError(this.startupFailure)
       }
     };
+  }
+  /** Probes run off the event loop; the TTL cache above keeps them rare. */
+  async acpAvailability(backends) {
+    const entries = await Promise.all(backends.map(async (item) => [item.id, await backendCommandAvailable(item.id, item.command ?? "")]));
+    return Object.fromEntries(entries);
   }
   async associations(config2) {
     if (config2.serverUrl === void 0 || !this.storageAvailable) return {};
@@ -98876,19 +99045,31 @@ var PluginControlRuntime = class {
     };
   }
 };
+var COMMAND_AVAILABILITY_TTL_MS = 3e4;
+var commandAvailability = /* @__PURE__ */ new Map();
 function backendCommandAvailable(backend, command) {
-  if (!command || typeof command !== "string" || command.trim().length === 0) return false;
+  if (!command || typeof command !== "string" || command.trim().length === 0) return Promise.resolve(false);
   const trimmed = command.trim();
+  const cacheKey = `${backend}\0${trimmed}`;
+  const now = Date.now();
+  const cached2 = commandAvailability.get(cacheKey);
+  if (cached2 !== void 0 && now - cached2.at < COMMAND_AVAILABILITY_TTL_MS) return cached2.value;
+  const value = probeBackendCommand(backend, trimmed);
+  commandAvailability.set(cacheKey, { value, at: now });
+  return value;
+}
+async function probeBackendCommand(backend, trimmed) {
   if (defaultCheckExecutable(trimmed)) return true;
   const candidates = backend === "codex" ? codexBinaryCandidates(trimmed) : backend === "cursor" || backend === "antigravity" || backend === "opencode" ? cursorBinaryCandidates(trimmed) : [trimmed];
-  return candidates.some((candidate) => defaultCheckExecutable(candidate) || commandAvailable(candidate));
+  for (const candidate of candidates) {
+    if (defaultCheckExecutable(candidate)) return true;
+    if (await commandAvailable(candidate)) return true;
+  }
+  return false;
 }
-function commandAvailable(command) {
+async function commandAvailable(command) {
   try {
-    execFileSync2(process.platform === "win32" ? "where" : "which", [command], {
-      stdio: "ignore",
-      timeout: 5e3
-    });
+    await execFileAsync3(process.platform === "win32" ? "where" : "which", [command], { timeout: 5e3 });
     return true;
   } catch {
     return false;
@@ -98907,6 +99088,7 @@ function editableConfig(config2) {
     loopback: config2.loopback,
     forceRelay: config2.forceRelay,
     logLevel: config2.logLevel,
+    liteMode: config2.liteMode,
     reconnect: config2.reconnect.enabled ? {
       initialDelayMs: config2.reconnect.initialDelayMs,
       maxDelayMs: config2.reconnect.maxDelayMs,
@@ -98923,18 +99105,18 @@ function editableConfig(config2) {
     ...config2.acp === void 0 ? {} : { acp: { enabled: config2.acp.enabled, backends: config2.acp.backends } }
   };
 }
-function isRecord20(value) {
+function isRecord21(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function record9(value) {
-  if (!isRecord20(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
+  if (!isRecord21(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
   return value;
 }
 function ok3(value) {
   return { ok: true, value };
 }
 function withUpdate(result, update) {
-  if (update === void 0 || !result.ok || !isRecord20(result.value)) return result;
+  if (update === void 0 || !result.ok || !isRecord21(result.value)) return result;
   return ok3({ ...result.value, update });
 }
 function fail5(error62) {
@@ -100131,9 +100313,9 @@ function diagnosticReason2(error62) {
   return message.replace(/\s+/g, " ").slice(0, 160) || "Unknown peer connection failure.";
 }
 function extractEndpoint(message) {
-  if (!isRecord21(message) || !isRecord21(message.payload)) return void 0;
+  if (!isRecord22(message) || !isRecord22(message.payload)) return void 0;
   const payload = message.payload;
-  if (isRecord21(payload.params)) {
+  if (isRecord22(payload.params)) {
     if (typeof payload.params.endpoint === "string") return payload.params.endpoint;
     if (typeof payload.params.method === "string") return payload.params.method;
   }
@@ -100141,7 +100323,7 @@ function extractEndpoint(message) {
   if (typeof payload.method === "string") return payload.method;
   return void 0;
 }
-function isRecord21(value) {
+function isRecord22(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function shortId2(value) {
@@ -100815,6 +100997,9 @@ function createNodeWebSocket(url2) {
 
 // packages/plugin/src/server-connection.ts
 var DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12e3;
+function advertisedTransportCapabilities(forceRelay, rtcAvailable) {
+  return forceRelay || !rtcAvailable ? ["transport.relay", "transport.relay.attach"] : ["transport.lan", "transport.p2p", "transport.turn", "transport.relay", "transport.relay.attach"];
+}
 var HostServerConnection = class {
   constructor(config2, identity3, identities, api, connections, logger2, createWebSocket = (url2) => createNodeWebSocket(url2), rtcFactoryProvider, hostCapabilities = () => [], harnessVersion) {
     this.config = config2;
@@ -100966,7 +101151,12 @@ var HostServerConnection = class {
   async connectOnce() {
     const credentials = await this.api.authenticate(this.identity);
     if (this.stopped) return;
-    const offeredCapabilities = this.rtcFactoryProvider === void 0 || this.config.forceRelay ? [RELAY_RESUME_CAPABILITY, "transport.relay", "transport.relay.attach", ...this.hostCapabilities()] : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY, "transport.lan", "transport.p2p", "transport.turn", "transport.relay", "transport.relay.attach", ...this.hostCapabilities()];
+    const forceRelay = isForceRelayEnabled() || this.config.forceRelay;
+    const offeredCapabilities = [
+      ...forceRelay || this.rtcFactoryProvider === void 0 ? [RELAY_RESUME_CAPABILITY] : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY],
+      ...advertisedTransportCapabilities(forceRelay, this.rtcFactoryProvider !== void 0),
+      ...this.hostCapabilities()
+    ];
     const recoveryTickets = [...this.tunnels.values()].flatMap((tunnel) => tunnel.lease?.recoveryTicket() ?? []).slice(0, 64);
     const socket = this.createWebSocket(websocketUrl2(this.api.baseUrl));
     this.socket = socket;
@@ -101572,7 +101762,7 @@ var HostServerConnection = class {
       this.logger.warn("duplicate webrtc offer ignored", { connectionId: shortId3(tunnel.connectionId) });
       return;
     }
-    if (this.config.forceRelay) {
+    if (this.config.forceRelay || isForceRelayEnabled()) {
       this.logger.warn("webrtc offer ignored: forceRelay is enabled", { connectionId: shortId3(tunnel.connectionId) });
       return;
     }
@@ -102567,7 +102757,7 @@ var HarnessRemoteBridge = class {
     if (TERMINAL_STREAMS.has(params.endpoint)) throw new RpcError("METHOD_NOT_ALLOWED", "Use a stream for this terminal endpoint.");
     if (["settings/update", "settings/replace", "settings/mutate"].includes(params.endpoint)) {
       const args = requestArgs(params.payload);
-      if (args.ns === "ds-harness-remote" || args.ns === "dsh-remote") {
+      if (args.ns === "ds-harness-remote-fast" || args.ns === "ds-harness-remote" || args.ns === "dsh-remote") {
         throw new RpcError("PERMISSION_DENIED", "Remote access settings can only be changed locally on the Host.");
       }
     }
@@ -102628,11 +102818,13 @@ var HarnessRemoteBridge = class {
         return result;
       }
       const reason = workspaceFileFailureReason(error62);
+      const requested = workspaceReadRequestPath(params.payload);
       this.logger?.warn("harness remote call failed", {
         endpoint: params.endpoint,
         durationMs: Math.round(performance.now() - startedAt),
         code: this.gateway.failure(error62).code,
-        ...reason === void 0 ? {} : { reason }
+        ...reason === void 0 ? {} : { reason },
+        ...requested === void 0 ? {} : { requested }
       });
       throw error62;
     }
@@ -102670,7 +102862,7 @@ var HarnessRemoteBridge = class {
       const record11 = await this.schedule.create(sessionId, request, AbortSignal.timeout(6e4));
       return { ok: true, value: record11 };
     } catch (error62) {
-      const published = isRecord22(error62) && typeof error62.code === "string" ? PUBLIC_SCHEDULE_ERRORS[error62.code] : void 0;
+      const published = isRecord23(error62) && typeof error62.code === "string" ? PUBLIC_SCHEDULE_ERRORS[error62.code] : void 0;
       if (published === void 0) {
         return {
           ok: false,
@@ -102887,8 +103079,8 @@ var HarnessRemoteBridge = class {
     const args = parsed.data.args;
     const result = await this.gateway.dispatch(plugin ? "pluginManager/listPlugins" : "pluginManager/listBundles", { args: {} }, AbortSignal.timeout(6e4));
     if (!result.ok || !Array.isArray(result.value)) throw new RpcError("PERMISSION_DENIED", "Cannot verify the Host plugin inventory.");
-    const row = result.value.find((value) => isRecord22(value) && value[plugin ? "entryId" : "name"] === args[key]);
-    if (!isRecord22(row) || row.readOnlyReason !== void 0) throw new RpcError("PERMISSION_DENIED", "The Host plugin cannot be changed remotely.");
+    const row = result.value.find((value) => isRecord23(value) && value[plugin ? "entryId" : "name"] === args[key]);
+    if (!isRecord23(row) || row.readOnlyReason !== void 0) throw new RpcError("PERMISSION_DENIED", "The Host plugin cannot be changed remotely.");
     if (remoteOwnedBundleRow(row, plugin)) {
       throw new RpcError("PERMISSION_DENIED", "The Remote plugin can only be enabled or disabled locally on the Host.");
     }
@@ -102908,8 +103100,8 @@ var HarnessRemoteBridge = class {
     if (!parsed.success) throw new RpcError("INVALID_MESSAGE", "Invalid plugin update request.");
     const result = await this.gateway.dispatch("pluginManager/listBundles", { args: {} }, AbortSignal.timeout(6e4));
     if (!result.ok || !Array.isArray(result.value)) throw new RpcError("PERMISSION_DENIED", "Cannot verify the Host plugin inventory.");
-    const row = result.value.find((value) => isRecord22(value) && value.name === parsed.data.args.name);
-    if (!isRecord22(row) || row.readOnlyReason !== void 0 || row.updatable !== true) {
+    const row = result.value.find((value) => isRecord23(value) && value.name === parsed.data.args.name);
+    if (!isRecord23(row) || row.readOnlyReason !== void 0 || row.updatable !== true) {
       throw new RpcError("PERMISSION_DENIED", "The Host plugin cannot be updated remotely.");
     }
     if (remoteOwnedBundleRow(row, false)) {
@@ -102930,12 +103122,37 @@ var HarnessRemoteBridge = class {
     try {
       for await (const value of source) {
         if (signal.aborted) break;
-        const frame = {
+        let frame = {
           streamId,
           hasValue: true,
-          ...value === void 0 ? {} : { value: historyFollow && this.compactHistoryEnabled && isCompactSnapshot(value) ? compactHistory(value) : value }
+          ...value === void 0 ? {} : { value: historyFollow && (this.compactHistoryEnabled || isLiteModeEnabled()) && isCompactSnapshot(value) ? compactHistory(value) : value }
         };
-        if (encodeMessage(createEvent("harness.remote.frame", frame)).byteLength > MAX_SECURE_MESSAGE_BYTES) {
+        if (isLiteModeEnabled()) {
+          const shaped = applyLiteMode(frame);
+          if (shaped === void 0) {
+            const layer = isJsonRecord(frame.value) ? frame.value : void 0;
+            const bytes2 = layer === void 0 ? 0 : Buffer.byteLength(JSON.stringify(layer.value ?? null));
+            this.logger?.debug("fast mode dropped projection frame", {
+              streamId,
+              key: typeof layer?.key === "string" ? layer.key : "unknown",
+              bytes: bytes2
+            });
+            continue;
+          }
+          frame = shaped;
+        }
+        const encoded = encodeMessage(createEvent("harness.remote.frame", frame));
+        const bytes = encoded.byteLength;
+        if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
+          const value2 = isJsonRecord(frame.value) ? frame.value : void 0;
+          this.logger?.info("outbound frame", {
+            type: typeof value2?.type === "string" ? value2.type : "unknown",
+            bytes,
+            lite: isLiteModeEnabled(),
+            transferFrames
+          });
+        }
+        if (bytes > MAX_SECURE_MESSAGE_BYTES) {
           if (!transferFrames) throw new Error("Oversized Harness Remote frame");
           await this.transferStreamFrame(frame, signal);
         } else {
@@ -102999,7 +103216,7 @@ var HarnessRemoteBridge = class {
     }
   }
   async assertNativeWorkspaceFileCall(endpoint, payload, signal) {
-    const rootPayload = isRecord22(payload) ? payload : {};
+    const rootPayload = isRecord23(payload) ? payload : {};
     const args = requestArgs(payload);
     const sessionId = typeof args.workspaceFileScopeId === "string" ? args.workspaceFileScopeId : typeof args.sessionId === "string" ? args.sessionId : typeof args.agentId === "string" ? args.agentId : void 0;
     if (sessionId === void 0) {
@@ -103009,7 +103226,7 @@ var HarnessRemoteBridge = class {
     if (!sessionWorkspace) {
       throw workspaceFileFailure("WORKSPACE_UNAVAILABLE", "The workspace is unavailable.", "authority-unavailable");
     }
-    const options = isRecord22(args.options) ? args.options : void 0;
+    const options = isRecord23(args.options) ? args.options : void 0;
     const rawBaseFile = endpoint === "workspaceFiles/readBytes" ? typeof options?.baseFile === "string" ? options.baseFile : typeof args.baseFile === "string" ? args.baseFile : void 0 : void 0;
     if (endpoint === "workspaceFiles/readBytes") {
       if (options !== void 0 && "baseFile" in options && options.baseFile !== void 0 && typeof options.baseFile !== "string") {
@@ -103023,18 +103240,22 @@ var HarnessRemoteBridge = class {
     if (rawBaseFile !== void 0) {
       const path = typeof args.path === "string" ? args.path : "";
       const relative6 = path.replaceAll("\\", "/");
-      if (relative6.length === 0 || relative6.startsWith("/") || /^[a-z][a-z\d+.-]*:/iu.test(relative6) || relative6.includes("\0")) {
+      if (relative6.length === 0 || /^[a-z][a-z\d+.-]*:/iu.test(relative6) || relative6.includes("\0")) {
         throw workspaceFileFailure("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.", "outside-root");
       }
-      const baseSegments = process.platform === "win32" ? rawBaseFile.replaceAll("\\", "/").split("/") : rawBaseFile.split("/");
-      if (baseSegments.some((segment) => segment === "..")) {
-        throw workspaceFileFailure("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.", "outside-root");
+      if (isAbsolute10(relative6)) {
+        safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, relative6, endpoint, sessionWorkspace.cwd);
+      } else {
+        const baseSegments = process.platform === "win32" ? rawBaseFile.replaceAll("\\", "/").split("/") : rawBaseFile.split("/");
+        if (baseSegments.some((segment) => segment === "..")) {
+          throw workspaceFileFailure("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.", "outside-root");
+        }
+        const safeBaseRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, rawBaseFile, endpoint, sessionWorkspace.cwd);
+        const baseCandidate = resolve9(sessionWorkspace.root, safeBaseRel);
+        const baseDir = dirname8(baseCandidate);
+        const targetCandidate = resolve9(baseDir, path);
+        safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, targetCandidate, endpoint, sessionWorkspace.cwd);
       }
-      const safeBaseRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, rawBaseFile, endpoint, sessionWorkspace.cwd);
-      const baseCandidate = resolve9(sessionWorkspace.root, safeBaseRel);
-      const baseDir = dirname8(baseCandidate);
-      const targetCandidate = resolve9(baseDir, path);
-      safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, targetCandidate, endpoint, sessionWorkspace.cwd);
     } else {
       const path = typeof args.path === "string" ? args.path : ".";
       const pathSegments = process.platform === "win32" ? path.replaceAll("\\", "/").split("/") : path.split("/");
@@ -103043,8 +103264,8 @@ var HarnessRemoteBridge = class {
       }
       safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, path, endpoint, sessionWorkspace.cwd);
     }
-    let finalArgs = isRecord22(rootPayload.args) ? { ...rootPayload.args, path: safeRel } : { ...rootPayload, path: safeRel };
-    if (isRecord22(finalArgs.options)) {
+    let finalArgs = isRecord23(rootPayload.args) ? { ...rootPayload.args, path: safeRel } : { ...rootPayload, path: safeRel };
+    if (isRecord23(finalArgs.options)) {
       const { baseFile: _baseFile, ...restOptions } = finalArgs.options;
       finalArgs.options = restOptions;
     }
@@ -103056,11 +103277,11 @@ var HarnessRemoteBridge = class {
       const boundedLength = Math.min(rawLength, MAX_READ_BYTES2);
       const normalizedRange = { offset, length: boundedLength };
       if (requiresWorkspaceChangePath(this.harnessVersion)) {
-        finalArgs.options = { ...isRecord22(finalArgs.options) ? finalArgs.options : {}, range: normalizedRange };
+        finalArgs.options = { ...isRecord23(finalArgs.options) ? finalArgs.options : {}, range: normalizedRange };
         delete finalArgs.range;
       } else {
         finalArgs.range = normalizedRange;
-        if (isRecord22(finalArgs.options)) {
+        if (isRecord23(finalArgs.options)) {
           finalArgs.options = { ...finalArgs.options, range: normalizedRange };
         }
       }
@@ -103069,7 +103290,7 @@ var HarnessRemoteBridge = class {
         finalArgs.length = boundedLength;
       }
     }
-    return isRecord22(rootPayload.args) ? { ...rootPayload, args: finalArgs } : finalArgs;
+    return isRecord23(rootPayload.args) ? { ...rootPayload, args: finalArgs } : finalArgs;
   }
   async resolveWorkspaceRootForSession(sessionId, signal) {
     signal.throwIfAborted();
@@ -103171,6 +103392,15 @@ var HarnessRemoteBridge = class {
     }
   }
 };
+function workspaceReadRequestPath(payload) {
+  const args = requestArgs(payload);
+  const options = isRecord23(args.options) ? args.options : void 0;
+  const baseFile = typeof options?.baseFile === "string" ? options.baseFile : typeof args.baseFile === "string" ? args.baseFile : void 0;
+  const path = typeof args.path === "string" ? args.path : void 0;
+  if (path === void 0 && baseFile === void 0) return void 0;
+  const text = [path, baseFile === void 0 ? void 0 : `base=${baseFile}`].filter((part) => part !== void 0).join(" ");
+  return text.length > 240 ? `${text.slice(0, 240)}\u2026` : text;
+}
 function isPathOutside(rel) {
   if (rel === ".." || isAbsolute10(rel)) return true;
   if (process.platform === "win32") {
@@ -103179,17 +103409,17 @@ function isPathOutside(rel) {
   return rel.startsWith("../");
 }
 function byteOrLineRange2(args) {
-  const options = isRecord22(args.options) ? args.options : void 0;
-  if (options !== void 0 && isRecord22(options.range)) return options.range;
-  return isRecord22(args.range) ? args.range : args;
+  const options = isRecord23(args.options) ? args.options : void 0;
+  if (options !== void 0 && isRecord23(options.range)) return options.range;
+  return isRecord23(args.range) ? args.range : args;
 }
 function normalizeWorkspaceChangesPayload(endpoint, payload, harnessVersion) {
   if (endpoint !== "workspaceFiles/changes" || !requiresWorkspaceChangePath(harnessVersion)) return payload;
-  if (!isRecord22(payload) || !isRecord22(payload.args) || Object.hasOwn(payload.args, "path")) return payload;
+  if (!isRecord23(payload) || !isRecord23(payload.args) || Object.hasOwn(payload.args, "path")) return payload;
   return { ...payload, args: { ...payload.args, path: "." } };
 }
 function normalizeWorkspaceRequestPayload(endpoint, payload, harnessVersion) {
-  if (!isRecord22(payload) || !isRecord22(payload.args)) return payload;
+  if (!isRecord23(payload) || !isRecord23(payload.args)) return payload;
   const args = payload.args;
   if (endpoint === "workspaceFiles/readBytes" && requiresWorkspaceChangePath(harnessVersion)) {
     if (!Object.hasOwn(args, "range") || Object.hasOwn(args, "options")) return payload;
@@ -103203,10 +103433,10 @@ function normalizeWorkspaceRequestPayload(endpoint, payload, harnessVersion) {
   return payload;
 }
 async function normalizeSessionAttachmentPayload(endpoint, payload, harnessVersion, gateway, signal) {
-  if (endpoint !== "session/attachment" || !isRecord22(payload) || !isRecord22(payload.args)) return payload;
-  const request = isRecord22(payload.args.request) ? payload.args.request : void 0;
+  if (endpoint !== "session/attachment" || !isRecord23(payload) || !isRecord23(payload.args)) return payload;
+  const request = isRecord23(payload.args.request) ? payload.args.request : void 0;
   if (request === void 0) return payload;
-  const attachment = isRecord22(request.attachment) ? request.attachment : void 0;
+  const attachment = isRecord23(request.attachment) ? request.attachment : void 0;
   const attachmentId = attachment !== void 0 && typeof attachment.attachmentId === "string" ? attachment.attachmentId : typeof request.attachmentId === "string" ? request.attachmentId : void 0;
   if (attachmentId === void 0) return payload;
   if (!isDshV022OrNewer(harnessVersion)) {
@@ -103238,7 +103468,7 @@ async function findSessionAttachmentReference(gateway, sessionId, attachmentId, 
       const result = await gateway.dispatch("session/page", { args: { request: pageRequest } }, signal);
       const reference = extractAttachmentReference(result, attachmentId);
       if (reference !== void 0) return reference;
-      if (result.ok === true && isRecord22(result.value)) {
+      if (result.ok === true && isRecord23(result.value)) {
         if (result.value.hasMore === true && typeof result.value.beforeSeq === "number") {
           beforeSeq = result.value.beforeSeq;
           continue;
@@ -103262,7 +103492,7 @@ function extractAttachmentReference(result, attachmentId) {
   const value = result.value;
   let records;
   if (Array.isArray(value)) records = value;
-  else if (isRecord22(value)) {
+  else if (isRecord23(value)) {
     if (Array.isArray(value.records)) records = value.records;
     else if (Array.isArray(value.events)) records = value.events;
   }
@@ -103283,7 +103513,7 @@ function findImageReference(value, attachmentId, depth) {
     return void 0;
   }
   const block = value;
-  const candidate = isRecord22(block.attachment) ? block.attachment : block;
+  const candidate = isRecord23(block.attachment) ? block.attachment : block;
   const candidateId = typeof candidate.attachmentId === "string" ? candidate.attachmentId : void 0;
   if (candidateId === attachmentId && isCompleteImageReference(candidate)) {
     return {
@@ -103399,6 +103629,7 @@ function needsDirectoryFallback(result) {
   const message = result.error.message.toLocaleLowerCase();
   return code.includes("capability") || code === "directory-picker/unavailable" || code === "directory-picker-unavailable" || message.includes("browse capability") || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
 }
+var FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024;
 var SESSION_PROJECTION_WHITELIST = /* @__PURE__ */ new Set([
   "permissions",
   "remoteStatusKnown",
@@ -103433,7 +103664,7 @@ var DANGEROUS_KEYS = /* @__PURE__ */ new Set(["__proto__", "prototype", "constru
 var MAX_WHITELIST_PROJECTION_BYTES = 64 * 1024;
 var MAX_UNKNOWN_PROJECTION_BYTES = 4096;
 function filterSessionProjections(session2) {
-  if (!isRecord22(session2) || !isRecord22(session2.projections) || !isRecord22(session2.projections.values)) {
+  if (!isRecord23(session2) || !isRecord23(session2.projections) || !isRecord23(session2.projections.values)) {
     return session2;
   }
   const originalValues = session2.projections.values;
@@ -103474,15 +103705,15 @@ function trimSessionCatalogRows(endpoint, items) {
   return kept.length <= SESSION_LIST_ROW_BUDGET ? kept : kept.slice().sort((left, right) => updatedAtOf(right) - updatedAtOf(left)).slice(0, SESSION_LIST_ROW_BUDGET);
 }
 function isListableRemoteSession(session2) {
-  return isRecord22(session2) && session2.parentSessionId === void 0 && session2.origin !== "subagent";
+  return isRecord23(session2) && session2.parentSessionId === void 0 && session2.origin !== "subagent";
 }
 function updatedAtOf(session2) {
-  return isRecord22(session2) && typeof session2.updatedAt === "number" ? session2.updatedAt : 0;
+  return isRecord23(session2) && typeof session2.updatedAt === "number" ? session2.updatedAt : 0;
 }
 function withSessionRowTitle(session2) {
-  if (!isRecord22(session2) || typeof session2.title === "string" && session2.title !== "") return session2;
-  const values = isRecord22(session2.projections) ? session2.projections.values : void 0;
-  const title = isRecord22(values) ? values.title : void 0;
+  if (!isRecord23(session2) || typeof session2.title === "string" && session2.title !== "") return session2;
+  const values = isRecord23(session2.projections) ? session2.projections.values : void 0;
+  const title = isRecord23(values) ? values.title : void 0;
   return typeof title === "string" && title !== "" ? { ...session2, title } : session2;
 }
 function filterSessionListProjections(resultOrEndpoint, maybeResult) {
@@ -103491,7 +103722,7 @@ function filterSessionListProjections(resultOrEndpoint, maybeResult) {
   if (endpoint !== void 0 && endpoint !== "session/list" && endpoint !== "session/search") return result;
   if (!result || !result.ok) return result;
   const filterList = (items) => trimSessionCatalogRows(endpoint, items).map(filterSessionProjections).map(withSessionRowTitle);
-  if (isRecord22(result.value)) {
+  if (isRecord23(result.value)) {
     let changed = false;
     const updated = { ...result.value };
     if (Array.isArray(result.value.items)) {
@@ -103514,37 +103745,37 @@ function filterSessionListProjections(resultOrEndpoint, maybeResult) {
 }
 function filterRemotePluginInventory(endpoint, result) {
   if (!result.ok) return result;
-  const isRemote = (value) => typeof value === "string" && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
-  const filterEntries = (entries) => entries.filter((entry) => !isRecord22(entry) || !isRemote(entry.moduleName));
+  const isRemote = (value) => typeof value === "string" && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
+  const filterEntries = (entries) => entries.filter((entry) => !isRecord23(entry) || !isRemote(entry.moduleName));
   if (endpoint === "pluginManager/listPlugins" && Array.isArray(result.value)) {
     return { ...result, value: filterEntries(result.value) };
   }
   if (endpoint === "pluginManager/listBundles" && Array.isArray(result.value)) {
-    return { ...result, value: result.value.filter((bundle) => !isRecord22(bundle) || !isRemote(bundle.name)).map((bundle) => isRecord22(bundle) && Array.isArray(bundle.rows) ? { ...bundle, rows: filterEntries(bundle.rows) } : bundle) };
+    return { ...result, value: result.value.filter((bundle) => !isRecord23(bundle) || !isRemote(bundle.name)).map((bundle) => isRecord23(bundle) && Array.isArray(bundle.rows) ? { ...bundle, rows: filterEntries(bundle.rows) } : bundle) };
   }
-  if (endpoint === "pluginInventory/list" && isRecord22(result.value) && Array.isArray(result.value.entries)) {
+  if (endpoint === "pluginInventory/list" && isRecord23(result.value) && Array.isArray(result.value.entries)) {
     return { ...result, value: { ...result.value, entries: filterEntries(result.value.entries) } };
   }
   return result;
 }
 function requestArgs(payload) {
   const root2 = record10(payload);
-  const args = isRecord22(root2.args) ? root2.args : root2;
+  const args = isRecord23(root2.args) ? root2.args : root2;
   return record10(args.request ?? args._request ?? args);
 }
 function record10(value) {
-  return isRecord22(value) ? value : {};
+  return isRecord23(value) ? value : {};
 }
-function isRecord22(value) {
+function isRecord23(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function isCompactSnapshot(value) {
   return value !== null && typeof value === "object" && value.type === "snapshot";
 }
 function remoteOwnedBundleRow(row, plugin) {
-  const remoteModule = (value) => typeof value === "string" && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
+  const remoteModule = (value) => typeof value === "string" && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
   if (remoteModule(plugin ? row.moduleName : row.name)) return true;
-  return !plugin && (!Array.isArray(row.rows) || row.rows.some((value) => !isRecord22(value) || remoteModule(value.moduleName)) || Array.isArray(row.overrides) && row.overrides.some((value) => remoteModule(value)));
+  return !plugin && (!Array.isArray(row.rows) || row.rows.some((value) => !isRecord23(value) || remoteModule(value.moduleName)) || Array.isArray(row.overrides) && row.overrides.some((value) => remoteModule(value)));
 }
 
 // packages/plugin/src/remote-compaction-operations.ts
@@ -103558,11 +103789,11 @@ var MAX_OPERATIONS = 32;
 function requestIndexKey(ownerDeviceId, sessionId, requestId) {
   return `${ownerDeviceId}\0${sessionId}\0${requestId}`;
 }
-function isRecord23(value) {
+function isRecord24(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function commandIdOf(result) {
-  if (result?.ok !== true || !isRecord23(result.value)) return void 0;
+  if (result?.ok !== true || !isRecord24(result.value)) return void 0;
   return typeof result.value.commandId === "string" ? result.value.commandId : void 0;
 }
 var RemoteCompactionOperations = class {
@@ -103825,13 +104056,13 @@ function clampBudget(value) {
   return Math.min(Math.max(value, MIN_BUDGET_MS), MAX_BUDGET_MS);
 }
 function isCommandSuccess(result) {
-  if (result.ok !== true || !isRecord23(result.value)) return false;
-  const command = isRecord23(result.value.result) ? result.value.result : void 0;
+  if (result.ok !== true || !isRecord24(result.value)) return false;
+  const command = isRecord24(result.value.result) ? result.value.result : void 0;
   return command?.kind === "success";
 }
 function commandText2(result) {
-  if (result.ok !== true || !isRecord23(result.value)) return void 0;
-  const command = isRecord23(result.value.result) ? result.value.result : void 0;
+  if (result.ok !== true || !isRecord24(result.value)) return void 0;
+  const command = isRecord24(result.value.result) ? result.value.result : void 0;
   return typeof command?.text === "string" && command.text.trim() !== "" ? command.text : void 0;
 }
 function sanitizeMessage(message) {
@@ -103841,31 +104072,31 @@ function delay(ms) {
   return new Promise((resolve10) => setTimeout(resolve10, ms));
 }
 function readCompactionConfirmation(result, acceptedAt, commandId) {
-  if (result.ok !== true || !isRecord23(result.value)) return { kind: "unknown" };
+  if (result.ok !== true || !isRecord24(result.value)) return { kind: "unknown" };
   const records = Array.isArray(result.value.records) ? result.value.records : [];
   const legacy = Array.isArray(result.value.events) ? result.value.events : [];
   const events = [];
   for (const record11 of [...records, ...legacy]) {
-    const event = isRecord23(record11) && isRecord23(record11.event) ? record11.event : record11;
-    if (isRecord23(event) && typeof event.type === "string") events.push(event);
+    const event = isRecord24(record11) && isRecord24(record11.event) ? record11.event : record11;
+    if (isRecord24(event) && typeof event.type === "string") events.push(event);
   }
   if (events.length === 0) return { kind: "unknown" };
   const resolvedCommandId = commandId ?? latestCompactCommandId(events, acceptedAt);
   if (resolvedCommandId === void 0) return { kind: "not-yet" };
   const end = [...events].reverse().find((event) => {
     if (event.type !== "compaction/end") return false;
-    const data3 = isRecord23(event.data) ? event.data : void 0;
+    const data3 = isRecord24(event.data) ? event.data : void 0;
     return data3?.sourceCommandId === resolvedCommandId;
   });
   if (end === void 0) return { kind: "not-yet" };
-  const data2 = isRecord23(end.data) ? end.data : {};
+  const data2 = isRecord24(end.data) ? end.data : {};
   const error62 = data2.error === void 0 ? void 0 : errorText(data2.error);
   return error62 === void 0 ? { kind: "finished" } : { kind: "finished", error: error62 };
 }
 function latestCompactCommandId(events, acceptedAt) {
   for (const event of [...events].reverse()) {
     if (event.type !== "command/run") continue;
-    const data2 = isRecord23(event.data) ? event.data : void 0;
+    const data2 = isRecord24(event.data) ? event.data : void 0;
     if (data2?.name !== "compact" || typeof data2.commandId !== "string") continue;
     const time3 = typeof event.time === "number" ? event.time : 0;
     if (time3 !== 0 && time3 < acceptedAt - 5e3) continue;
@@ -103875,7 +104106,7 @@ function latestCompactCommandId(events, acceptedAt) {
 }
 function errorText(error62) {
   if (typeof error62 === "string") return sanitizeMessage(error62);
-  if (isRecord23(error62)) {
+  if (isRecord24(error62)) {
     const message = error62.message ?? error62.error ?? error62.reason;
     if (typeof message === "string" && message.trim() !== "") return sanitizeMessage(message);
     try {
@@ -103888,7 +104119,7 @@ function errorText(error62) {
 }
 
 // packages/plugin/src/service.ts
-import { execFileSync as execFileSync3 } from "node:child_process";
+import { execFileSync as execFileSync2 } from "node:child_process";
 import { existsSync as existsSync5 } from "node:fs";
 
 // packages/plugin/src/codex-workspace-bridge.ts
@@ -103920,6 +104151,8 @@ var HostPluginRuntime = class {
     this.pluginRoutes = pluginRoutes;
     this.schedule = schedule;
     this.terminalEnabled = config2.terminal.enabled;
+    setLiteModeEnabled(config2.liteMode === true);
+    setForceRelayEnabled(config2.forceRelay === true);
     this.loopbackPorts = [...config2.loopback.ports];
     this.codex = new CodexRemoteDomain(config2.codex, logger2);
     this.acp = new AcpRemoteGateway(config2.acp ?? { enabled: false, backends: [] }, logger2, void 0, void 0, () => this.terminalEnabled, this.terminalSpawner);
@@ -104055,8 +104288,8 @@ var HostPluginRuntime = class {
   localAcpPeer;
   localAcpPublish = async () => void 0;
   warnedMissingHostApi = false;
-  setTerminalEnabled(enabled) {
-    this.terminalEnabled = enabled;
+  setTerminalEnabled(enabled3) {
+    this.terminalEnabled = enabled3;
   }
   setLoopbackPorts(ports) {
     this.loopbackPorts = [...ports];
@@ -104476,7 +104709,7 @@ var HostPluginRuntime = class {
       }
     }
     try {
-      execFileSync3(process.platform === "win32" ? "where" : "which", [command], { stdio: "ignore" });
+      execFileSync2(process.platform === "win32" ? "where" : "which", [command], { stdio: "ignore" });
       return true;
     } catch {
       return false;
@@ -104728,10 +104961,28 @@ function remoteSessionTools(resolve10) {
     }
   }));
 }
-function installRemoteDiscoveryTools(ctx, resolve10) {
+function localSwitchTools(switches) {
+  const input4 = external_exports.object({ enabled: external_exports.boolean() }).strict();
+  return [{
+    name: "remote_fast_mode",
+    description: "Turn this Host's fast mode (\u6781\u901F\u6A21\u5F0F) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.",
+    parameters: object5({ enabled: { type: "boolean" } }, ["enabled"]),
+    output: {
+      schema: object5({ enabled: { type: "boolean" } }, ["enabled"]),
+      render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+    },
+    execute: async (args) => ({ enabled: await switches.setFastMode(input4.parse(args).enabled) })
+  }];
+}
+function installRemoteDiscoveryTools(ctx, resolve10, switches) {
   ctx.inject(["tools"], (toolContext) => {
     const tools = toolContext.get("tools");
-    for (const definition of [...remoteDiscoveryTools(resolve10), ...remoteSessionTools(resolve10)]) {
+    const definitions = [
+      ...remoteDiscoveryTools(resolve10),
+      ...remoteSessionTools(resolve10),
+      ...switches === void 0 ? [] : localSwitchTools(switches)
+    ];
+    for (const definition of definitions) {
       toolContext.effect(() => tools.register(definition));
     }
   });
@@ -104782,8 +105033,8 @@ function runHmrSafe(run, hmr) {
 
 // packages/plugin/src/update-check.ts
 var DIST_TAG_URLS = [
-  "https://registry.npmjs.org/-/package/ds-harness-remote/dist-tags",
-  "https://registry.npmmirror.com/-/package/ds-harness-remote/dist-tags"
+  "https://registry.npmjs.org/-/package/ds-harness-remote-fast/dist-tags",
+  "https://registry.npmmirror.com/-/package/ds-harness-remote-fast/dist-tags"
 ];
 var FETCH_TIMEOUT_MS = 1e4;
 var RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1e3;
@@ -105013,21 +105264,21 @@ var LocalPluginUpgrade = class {
 };
 function bundleUpdatable(listed, packageName) {
   if (!Array.isArray(listed)) return false;
-  return listed.some((row) => isRecord24(row) && row.name === packageName && (row.update === "registry" || row.update === void 0 && row.updatable === true));
+  return listed.some((row) => isRecord25(row) && row.name === packageName && (row.update === "registry" || row.update === void 0 && row.updatable === true));
 }
 function classifyUpdateResult(result) {
-  if (!isRecord24(result) || !isRecord24(result.result)) return { status: "failed", message: "update-failed" };
+  if (!isRecord25(result) || !isRecord25(result.result)) return { status: "failed", message: "update-failed" };
   const application = result.result.application;
   if (application === "applied" || application === "restart-required") return { status: "started" };
   return { status: "failed", message: failureMessage(result.result.error) };
 }
 function failureMessage(error62) {
-  if (!isRecord24(error62)) return "update-failed";
+  if (!isRecord25(error62)) return "update-failed";
   const code = typeof error62.code === "string" && error62.code.length > 0 && error62.code.length <= 80 ? error62.code : "update-failed";
   const diagnostic = typeof error62.diagnostic === "string" ? error62.diagnostic.replace(/\s+/g, " ").trim().slice(0, 180) : "";
   return diagnostic === "" ? code : `${code}: ${diagnostic}`;
 }
-function isRecord24(value) {
+function isRecord25(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -105182,7 +105433,7 @@ ${helpText()}`);
 }
 async function register(args, runtime) {
   if (args.length !== 1 || args[0] === void 0 || args[0].trim() === "") {
-    throw new CliUsageError("Usage: ds-harness-remote register <server-token>");
+    throw new CliUsageError("Usage: ds-harness-remote-fast register <server-token>");
   }
   const context = await hostContext(runtime);
   await context.api.authorizeHostWithCode(context.identity, args[0]);
@@ -105190,11 +105441,11 @@ async function register(args, runtime) {
   return 0;
 }
 async function login(args, runtime) {
-  if (args.length > 1) throw new CliUsageError("Usage: ds-harness-remote login [provider|list]");
+  if (args.length > 1) throw new CliUsageError("Usage: ds-harness-remote-fast login [provider|list]");
   const context = await hostContext(runtime);
   const providers = (await context.api.oauthProviders()).filter((item) => item.qrStartUrl != null);
   if (args[0] === "list") {
-    write2(runtime.stdout, providers.length === 0 ? "No QR sign-in providers are available.\n" : providers.map((item) => `${item.displayName}: ds-harness-remote login ${item.id}
+    write2(runtime.stdout, providers.length === 0 ? "No QR sign-in providers are available.\n" : providers.map((item) => `${item.displayName}: ds-harness-remote-fast login ${item.id}
 `).join(""));
     return 0;
   }
@@ -105491,7 +105742,7 @@ var AcpGateway = class {
 };
 
 // packages/plugin/src/index.ts
-var name = "ds-harness-remote";
+var name = "ds-harness-remote-fast";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["@dsh-remote/plugin"]);
 var pluginSettingsNamespace = "ds-harness-remote";
 var DEFAULT_ENTRY_ID = "ds-harness-remote";
@@ -105840,7 +106091,17 @@ async function activate(ctx, readConfig, entryId, requireRemoteEvents = false) {
       await logStore.flush();
     };
   }, "ds-harness-remote lifecycle");
-  if (config2.remoteTools?.enabled) installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? void 0 : clientRuntime);
+  if (config2.remoteTools?.enabled) {
+    installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? void 0 : clientRuntime, settingsBinding === void 0 ? void 0 : {
+      fastMode: () => resolveConfig(readConfig()).liteMode === true,
+      setFastMode: async (enabled3) => {
+        const current = editableConfig(resolveConfig(readConfig()));
+        await settingsBinding.replace({ ...current, liteMode: enabled3 });
+        setLiteModeEnabled(enabled3);
+        return enabled3;
+      }
+    });
+  }
 }
 function resolveLogProfileName(ctx) {
   const envProfile = process.env.DSH_PROFILE?.trim();
