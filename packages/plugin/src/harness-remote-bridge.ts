@@ -393,11 +393,13 @@ export class HarnessRemoteBridge {
         return result
       }
       const reason = workspaceFileFailureReason(error)
+      const requested = workspaceReadRequestPath(params.payload)
       this.logger?.warn('harness remote call failed', {
         endpoint: params.endpoint,
         durationMs: Math.round(performance.now() - startedAt),
         code: this.gateway.failure(error).code,
         ...(reason === undefined ? {} : { reason }),
+        ...(requested === undefined ? {} : { requested }),
       })
       throw error
     }
@@ -857,18 +859,26 @@ export class HarnessRemoteBridge {
     if (rawBaseFile !== undefined) {
       const path = typeof args.path === 'string' ? args.path : ''
       const relative = path.replaceAll('\\', '/')
-      if (relative.length === 0 || relative.startsWith('/') || /^[a-z][a-z\d+.-]*:/iu.test(relative) || relative.includes('\x00')) {
+      if (relative.length === 0 || /^[a-z][a-z\d+.-]*:/iu.test(relative) || relative.includes('\x00')) {
         throw workspaceFileFailure('WORKSPACE_PATH_DENIED', 'The requested workspace path is outside the workspace.', 'outside-root')
       }
-      const baseSegments = process.platform === 'win32' ? rawBaseFile.replaceAll('\\', '/').split('/') : rawBaseFile.split('/')
-      if (baseSegments.some(segment => segment === '..')) {
-        throw workspaceFileFailure('WORKSPACE_PATH_DENIED', 'The requested workspace path is outside the workspace.', 'outside-root')
+      // Remote clients that anchor a read on the session file still send absolute
+      // paths for image envelopes (`<path>/abs/workspace.png</path>`). Validate
+      // those against the workspace root instead of rejecting them outright: an
+      // in-root absolute path keeps working, an out-of-root one still fails.
+      if (isAbsolute(relative)) {
+        safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, relative, endpoint, sessionWorkspace.cwd)
+      } else {
+        const baseSegments = process.platform === 'win32' ? rawBaseFile.replaceAll('\\', '/').split('/') : rawBaseFile.split('/')
+        if (baseSegments.some(segment => segment === '..')) {
+          throw workspaceFileFailure('WORKSPACE_PATH_DENIED', 'The requested workspace path is outside the workspace.', 'outside-root')
+        }
+        const safeBaseRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, rawBaseFile, endpoint, sessionWorkspace.cwd)
+        const baseCandidate = resolve(sessionWorkspace.root, safeBaseRel)
+        const baseDir = dirname(baseCandidate)
+        const targetCandidate = resolve(baseDir, path)
+        safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, targetCandidate, endpoint, sessionWorkspace.cwd)
       }
-      const safeBaseRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, rawBaseFile, endpoint, sessionWorkspace.cwd)
-      const baseCandidate = resolve(sessionWorkspace.root, safeBaseRel)
-      const baseDir = dirname(baseCandidate)
-      const targetCandidate = resolve(baseDir, path)
-      safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, targetCandidate, endpoint, sessionWorkspace.cwd)
     } else {
       const path = typeof args.path === 'string' ? args.path : '.'
       const pathSegments = process.platform === 'win32' ? path.replaceAll('\\', '/').split('/') : path.split('/')
@@ -1034,6 +1044,17 @@ export class HarnessRemoteBridge {
     }
   }
 
+}
+
+/** Describe the path a rejected workspace read asked for, for operator logs. */
+function workspaceReadRequestPath(payload: unknown): string | undefined {
+  const args = requestArgs(payload)
+  const options = isRecord(args.options) ? args.options : undefined
+  const baseFile = typeof options?.baseFile === 'string' ? options.baseFile : (typeof args.baseFile === 'string' ? args.baseFile : undefined)
+  const path = typeof args.path === 'string' ? args.path : undefined
+  if (path === undefined && baseFile === undefined) return undefined
+  const text = [path, baseFile === undefined ? undefined : `base=${baseFile}`].filter(part => part !== undefined).join(' ')
+  return text.length > 240 ? `${text.slice(0, 240)}…` : text
 }
 
 function isPathOutside(rel: string): boolean {
