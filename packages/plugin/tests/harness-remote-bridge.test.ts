@@ -1935,7 +1935,30 @@ describe('HarnessRemoteBridge', () => {
           },
         },
         {
-          name: 'rejects readBytes when path is not relative when baseFile is provided',
+          name: 'resolves readBytes when the path is absolute inside the workspace even with baseFile',
+          run: async () => {
+            dispatch.mockClear()
+            await expect(
+              bridge.call({
+                endpoint: 'workspaceFiles/readBytes',
+                payload: {
+                  args: {
+                    workspaceFileScopeId: 'session-1',
+                    path: insideFile,
+                    options: { baseFile: 'sub/nested.txt' },
+                  },
+                },
+              }),
+            ).resolves.toMatchObject({ ok: true })
+            expect(dispatch).toHaveBeenCalledWith(
+              'workspaceFiles/readBytes',
+              expect.objectContaining({ args: expect.objectContaining({ path: 'inside.txt' }) }),
+              expect.any(AbortSignal),
+            )
+          },
+        },
+        {
+          name: 'rejects readBytes when an absolute path stays outside the workspace with baseFile',
           run: async () => {
             dispatch.mockClear()
             await expect(
@@ -1951,7 +1974,12 @@ describe('HarnessRemoteBridge', () => {
               }),
             ).rejects.toMatchObject({ code: 'WORKSPACE_PATH_DENIED' })
             expect(dispatch).not.toHaveBeenCalled()
-
+          },
+        },
+        {
+          name: 'rejects readBytes when the path carries a URL scheme with baseFile',
+          run: async () => {
+            dispatch.mockClear()
             await expect(
               bridge.call({
                 endpoint: 'workspaceFiles/readBytes',
