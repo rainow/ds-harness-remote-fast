@@ -1,0 +1,1323 @@
+From c695f9315d182cfcea307354dcfd010bb216229f Mon Sep 17 00:00:00 2001
+From: rainow <rainow@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 11:45:58 +0800
+Subject: [PATCH 2/4] fork: fast mode (lite projection + force relay) and
+ client extras
+
+---
+ packages/plugin/package.json                  |   1 +
+ packages/plugin/scripts/verify-bundles.mjs    |  44 +++++
+ packages/plugin/src/client-locale.ts          |  20 ++
+ packages/plugin/src/client-runtime.ts         |   3 +-
+ packages/plugin/src/client.ts                 |   8 +-
+ .../plugin/src/client/fast-mode-switches.ts   |  94 ++++++++++
+ packages/plugin/src/client/shell.ts           |   4 +
+ packages/plugin/src/client/types.ts           |   1 +
+ packages/plugin/src/client/workspaces.ts      |   5 +-
+ packages/plugin/src/compact-history.ts        |  25 ++-
+ packages/plugin/src/config.ts                 |  10 +
+ packages/plugin/src/control-runtime.ts        |  46 ++++-
+ packages/plugin/src/harness-remote-bridge.ts  |  46 ++++-
+ packages/plugin/src/index.ts                  |  16 +-
+ packages/plugin/src/lite-mode.ts              | 174 ++++++++++++++++++
+ packages/plugin/src/relay-preference.ts       |  33 ++++
+ packages/plugin/src/remote-tools.ts           |  36 +++-
+ packages/plugin/src/server-connection.ts      |  25 ++-
+ packages/plugin/src/service.ts                |   4 +
+ packages/plugin/tests/client-runtime.test.ts  |   1 +
+ packages/plugin/tests/compact-history.test.ts |  27 +++
+ packages/plugin/tests/control-runtime.test.ts |  29 +++
+ .../tests/host-websocket-origin.test.ts       |   1 +
+ packages/plugin/tests/lite-mode.test.ts       |  91 +++++++++
+ .../plugin/tests/multi-client-runtime.test.ts |   1 +
+ .../plugin/tests/relay-preference.test.ts     |  40 ++++
+ .../plugin/tests/server-connection.test.ts    |   1 +
+ 27 files changed, 760 insertions(+), 26 deletions(-)
+ create mode 100644 packages/plugin/scripts/verify-bundles.mjs
+ create mode 100644 packages/plugin/src/client/fast-mode-switches.ts
+ create mode 100644 packages/plugin/src/lite-mode.ts
+ create mode 100644 packages/plugin/src/relay-preference.ts
+ create mode 100644 packages/plugin/tests/lite-mode.test.ts
+ create mode 100644 packages/plugin/tests/relay-preference.test.ts
+
+diff --git a/packages/plugin/package.json b/packages/plugin/package.json
+index 11995321..6f1e9c7f 100644
+--- a/packages/plugin/package.json
++++ b/packages/plugin/package.json
+@@ -77,6 +77,7 @@
+   },
+   "scripts": {
+     "build": "node scripts/verify-version-sync.mjs && tsc --noEmit -p tsconfig.json && node scripts/build-bundles.mjs",
++    "prepack": "node scripts/build-bundles.mjs && node scripts/verify-bundles.mjs",
+     "check": "node scripts/verify-version-sync.mjs && tsc -p tsconfig.test.json",
+     "test": "node scripts/verify-version-sync.mjs && vitest run"
+   },
+diff --git a/packages/plugin/scripts/verify-bundles.mjs b/packages/plugin/scripts/verify-bundles.mjs
+new file mode 100644
+index 00000000..1d0e49dc
+--- /dev/null
++++ b/packages/plugin/scripts/verify-bundles.mjs
+@@ -0,0 +1,44 @@
++#!/usr/bin/env node
++// Guards `npm publish`: the tarball must ship the esbuild bundles, never the
++// raw `tsc` output. `tsc -p tsconfig.json` writes dist/client.js as an ESM
++// module (starts with `import`), and if that runs after build-bundles the
++// client entry silently stops being importable in the browser.
++//
++// Wired to `prepack`, so `npm pack` / `npm publish` fail loudly instead of
++// shipping a broken package (this happened for 0.6.5-fast.2).
++import { readFile, stat } from 'node:fs/promises'
++import { dirname, join } from 'node:path'
++import { fileURLToPath } from 'node:url'
++
++const root = join(dirname(fileURLToPath(import.meta.url)), '..')
++const MIN_BUNDLE_BYTES = 300_000
++
++const failures = []
++
++async function check(file, { minBytes, forbidHead }) {
++  const path = join(root, 'dist', file)
++  let size
++  try {
++    size = (await stat(path)).size
++  } catch {
++    failures.push(`${file}: missing (run the build first)`)
++    return
++  }
++  if (size < minBytes) failures.push(`${file}: ${size} bytes < ${minBytes} — looks like raw tsc output`)
++  if (forbidHead) {
++    const head = (await readFile(path, 'utf8')).slice(0, 200)
++    if (forbidHead.test(head)) failures.push(`${file}: starts with ${JSON.stringify(head.slice(0, 40))} — tsc output, not the bundle`)
++  }
++}
++
++await check('index.js', { minBytes: 1_000_000 })
++await check('client.js', { minBytes: MIN_BUNDLE_BYTES, forbidHead: /^\s*(import\s|export\s)/ })
++await check('client.github.js', { minBytes: MIN_BUNDLE_BYTES, forbidHead: /^\s*(import\s|export\s)/ })
++
++if (failures.length > 0) {
++  console.error('Refusing to pack: committed bundles are not esbuild output')
++  for (const line of failures) console.error(`  - ${line}`)
++  process.exit(1)
++}
++
++console.log('Bundle check ok: dist/index.js + client bundles are esbuild output')
+diff --git a/packages/plugin/src/client-locale.ts b/packages/plugin/src/client-locale.ts
+index 84d780ad..835ce42a 100644
+--- a/packages/plugin/src/client-locale.ts
++++ b/packages/plugin/src/client-locale.ts
+@@ -335,6 +335,11 @@ export const en = {
+   startSignIn: 'Start sign-in',
+   allowControlCurrentDevice: 'Allow control of this device',
+   allowControlDevice: 'Allow control of this device',
++  fastModeGroupTitle: 'Data saver & speed',
++  liteMode: 'Fast mode',
++  forceRelay: 'Force relay',
++  forceRelayHint: 'Skip LAN, internet-direct and TURN probing and connect straight through the encrypted relay. Faster first connection and reconnects, but all traffic goes through the server.',
++  liteModeHint: 'Send remote clients only what they need: the first history page keeps the latest 10 messages, tool details are compacted, and oversized plugin projections (such as the Context panel) are dropped, so that data is not available remotely. On by default; turn it off for the full history. Applies immediately. A remote client can ask the agent to flip it in chat, e.g. "turn on the fast mode switch of the ds-harness-remote-fast plugin".',
+   connectedClientCount: '{count} connected',
+   checkAcp: 'Check backend',
+   checkingAcp: 'Checking ACP…',
+@@ -735,6 +740,11 @@ export const zh: Record<keyof typeof en, string> = {
+   startSignIn: '开始登录',
+   allowControlCurrentDevice: '允许控制本机',
+   allowControlDevice: '允许控制本机',
++  fastModeGroupTitle: '省流提速设置',
++  liteMode: '极速模式',
++  forceRelay: '强制中继',
++  forceRelayHint: '跳过局域网、互联网直连和 TURN 探测，直接走加密中继。首次连接与断线重连更快，但流量会经过服务器。',
++  liteModeHint: '只向远端推送必要数据：历史仅保留最近 10 条、工具详情做压缩，并丢弃体积较大的插件投影（如上下文面板），远端看不到这些插件数据。默认开启，关掉可获取完整历史。本开关切换后立即生效，远端访问可以在对话中要求 agent 打开或者关闭，比如「打开 ds-harness-remote-fast 插件的极速模式开关」。',
+   connectedClientCount: '{count} 台已连接',
+   checkAcp: '检测后端',
+   checkingAcp: '正在检测 ACP…',
+@@ -802,6 +812,11 @@ export const zh: Record<keyof typeof en, string> = {
+ }
+ 
+ export const ru: Record<keyof typeof en, string> = {
++  fastModeGroupTitle: 'Экономия трафика и скорость',
++  liteMode: 'Быстрый режим',
++  forceRelay: 'Только через ретранслятор',
++  forceRelayHint: 'Пропускать проверку LAN, прямого соединения и TURN и подключаться сразу через шифрованный ретранслятор. Первое подключение и переподключение быстрее, но весь трафик идёт через сервер.',
++  liteModeHint: 'Отправлять удалённым клиентам только необходимое: в первой странице истории остаются последние 10 сообщений, подробности инструментов сжимаются, крупные проекции плагинов (например, панель контекста) отбрасываются — удалённо этих данных не будет. Включено по умолчанию; отключите для полной истории. Применяется сразу.',
+   serverSavedLive: 'Адрес сервера сохранён и применён.',
+   saveServerBeforeLogin: 'Сохраните адрес сервера, прежде чем продолжить вход или сопряжение.',
+   pairingLoginTab: 'DSH Go',
+@@ -1202,6 +1217,11 @@ export const ru: Record<keyof typeof en, string> = {
+ }
+ 
+ export const uk: Record<keyof typeof en, string> = {
++  fastModeGroupTitle: 'Економія трафіку та швидкість',
++  liteMode: 'Швидкий режим',
++  forceRelay: 'Лише через ретранслятор',
++  forceRelayHint: 'Пропускати перевірку LAN, прямого зʼєднання й TURN і підключатися одразу через зашифрований ретранслятор. Перше підключення та перепідключення швидші, але весь трафік іде через сервер.',
++  liteModeHint: 'Надсилати віддаленим клієнтам лише необхідне: у першій сторінці історії лишаються останні 10 повідомлень, подробиці інструментів стискаються, великі проєкції плагінів (наприклад, панель контексту) відкидаються — віддалено цих даних не буде. Увімкнено за замовчуванням; вимкніть для повної історії. Застосовується одразу.',
+   serverSavedLive: 'Адресу сервера збережено й застосовано.',
+   saveServerBeforeLogin: 'Збережіть адресу сервера, перш ніж продовжити вхід або спарювання.',
+   pairingLoginTab: 'DSH Go',
+diff --git a/packages/plugin/src/client-runtime.ts b/packages/plugin/src/client-runtime.ts
+index 1f7233a3..a71c7f5a 100644
+--- a/packages/plugin/src/client-runtime.ts
++++ b/packages/plugin/src/client-runtime.ts
+@@ -12,6 +12,7 @@ import type { HarnessMode } from './harness-target.js'
+ import { probeRemoteHostFeatures, remoteHostFeatures } from './client-capabilities.js'
+ import { ClientCodexStreams } from './client-codex-streams.js'
+ import { ClientConnection } from './client-connection.js'
++import { isForceRelayEnabled } from './relay-preference.js'
+ import { ClientReconnect } from './client-reconnect.js'
+ import { ClientControl } from './client-control.js'
+ import type {
+@@ -274,7 +275,7 @@ export class ClientModeRuntime {
+       ...(this.clientAuthRequired && !this.connected && targetStatus.mode === 'remote' ? { clientAuthRequired: true } : {}),
+       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
+       connectedTargetDeviceId: this.connected?.target.deviceId,
+-      preferredTransports: this.config.forceRelay ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
++      preferredTransports: isForceRelayEnabled() || this.config.forceRelay ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
+       ...(this.connectionProgress === undefined ? {} : {
+         connectionProgress: {
+           targetDeviceId: this.connectionProgress.targetDeviceId,
+diff --git a/packages/plugin/src/client.ts b/packages/plugin/src/client.ts
+index 82c1c131..26a99c84 100644
+--- a/packages/plugin/src/client.ts
++++ b/packages/plugin/src/client.ts
+@@ -53,7 +53,7 @@ declare const DSH_REMOTE_CLIENT_MODULE_ID: string | undefined
+ 
+ const clientModuleId = typeof DSH_REMOTE_CLIENT_MODULE_ID === 'string'
+   ? DSH_REMOTE_CLIENT_MODULE_ID
+-  : 'ds-harness-remote'
++  : 'ds-harness-remote-fast'
+ const controlRouteBackoffStepsMs = [1_000, 2_000, 5_000, 10_000, 30_000] as const
+ 
+ class ControlRouteUnavailableError extends Error {
+@@ -128,7 +128,7 @@ window.__ModuleLoader__.load({
+     // section, so this jumps straight to the Remote card instead of requiring a
+     // scroll through the whole document.
+     function RemotePluginSettingsAction(props: { t: Translate; subject?: unknown }): unknown {
+-      if (pluginSubjectPackageName(props.subject) !== 'ds-harness-remote') return null
++      if (!['ds-harness-remote-fast', 'ds-harness-remote'].includes(pluginSubjectPackageName(props.subject) ?? '')) return null
+       const label = props.t('openPluginSettings')
+       return React.createElement('button', {
+         type: 'button',
+@@ -728,7 +728,7 @@ window.__ModuleLoader__.load({
+       // (`cordis.patch.yml` row `ds-harness-remote`).
+       ctx.slots.inject('plugins.row.config', () => ctx.slots.register({
+         name: 'plugins.row.config',
+-        key: 'ds-harness-remote#ds-harness-remote',
++        key: 'ds-harness-remote-fast#ds-harness-remote',
+         locale: localeNamespace,
+         inject: () => ({
+           control,
+@@ -742,7 +742,7 @@ window.__ModuleLoader__.load({
+       // package name.
+       ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+         name: 'plugins.bundle.config',
+-        key: 'ds-harness-remote',
++        key: 'ds-harness-remote-fast',
+         locale: localeNamespace,
+         inject: () => ({
+           control,
+diff --git a/packages/plugin/src/client/fast-mode-switches.ts b/packages/plugin/src/client/fast-mode-switches.ts
+new file mode 100644
+index 00000000..5bdfd281
+--- /dev/null
++++ b/packages/plugin/src/client/fast-mode-switches.ts
+@@ -0,0 +1,94 @@
++import type { Translate } from '../client-locale.js'
++import type { ClientReact, PluginSettingsView } from './types.js'
++
++/**
++ * The fork's two fast-mode switches, kept out of `workspaces.ts` on purpose.
++ *
++ * Upstream rewrites the host section heading in that file every few weeks, and
++ * every one of those edits used to collide with this component. Here the whole
++ * widget is one import plus one element, and it renders on its own row instead
++ * of inside `.dshRemoteSectionTitle`, so the heading can keep changing.
++ */
++export type ToggleConfigKey = 'liteMode' | 'forceRelay'
++
++const TOGGLES: Record<ToggleConfigKey, { label: 'liteMode' | 'forceRelay', hint: 'liteModeHint' | 'forceRelayHint', endpoint: string }> = {
++  liteMode: { label: 'liteMode', hint: 'liteModeHint', endpoint: 'settings.lite.set' },
++  forceRelay: { label: 'forceRelay', hint: 'forceRelayHint', endpoint: 'settings.forceRelay.set' },
++}
++
++const TOGGLE_ORDER: ToggleConfigKey[] = ['liteMode', 'forceRelay']
++
++export function createFastModeSwitches(React: ClientReact) {
++  function RemoteToggleSwitch(props: {
++    control: <T>(endpoint: string, payload?: unknown) => Promise<T>
++    t: Translate
++    configKey: ToggleConfigKey
++  }) {
++    const meta = TOGGLES[props.configKey]
++    const [enabled, setEnabled] = React.useState(false)
++    const [busy, setBusy] = React.useState(false)
++    const [showHint, setShowHint] = React.useState(false)
++    React.useEffect(() => {
++      props.control<PluginSettingsView>('settings.get')
++        .then(view => setEnabled(view.config[props.configKey] === true))
++        .catch(() => undefined)
++    }, [props.control, props.configKey])
++    const toggle = async (next: boolean) => {
++      setEnabled(next)
++      setBusy(true)
++      try {
++        const view = await props.control<PluginSettingsView>(meta.endpoint, { enabled: next })
++        setEnabled(view.config[props.configKey] === true)
++      } catch {
++        setEnabled(!next)
++      } finally {
++        setBusy(false)
++      }
++    }
++    const label = props.t(meta.label)
++    const hint = props.t(meta.hint)
++    return React.createElement('div', {
++      className: 'dshRemoteHostControlToggle',
++      style: { position: 'relative' },
++    },
++      React.createElement('span', { title: hint, style: { cursor: 'help' } }, label),
++      React.createElement('button', {
++        type: 'button',
++        title: hint,
++        'aria-label': hint,
++        onClick: () => setShowHint(!showHint),
++        style: { width: '14px', height: '14px', borderRadius: '50%', border: '1px solid currentColor', background: 'transparent', color: 'inherit', fontSize: '10px', lineHeight: '12px', padding: '0', cursor: 'pointer', opacity: 0.65, fontFamily: 'inherit' },
++      }, '?'),
++      React.createElement('input', {
++        type: 'checkbox',
++        role: 'switch',
++        checked: enabled,
++        disabled: busy,
++        'aria-label': label,
++        onChange: (event: Event) => void toggle((event.target as HTMLInputElement).checked),
++      }),
++      showHint
++        ? React.createElement('div', {
++          style: { position: 'absolute', top: '100%', left: '0', zIndex: 30, marginTop: '6px', width: '280px', padding: '8px 10px', borderRadius: '6px', background: 'rgba(24,24,28,0.94)', color: '#fff', fontSize: '12px', fontWeight: 400, lineHeight: '1.5', boxShadow: '0 4px 16px rgba(0,0,0,0.28)', whiteSpace: 'normal' },
++        }, hint)
++        : null,
++    )
++  }
++
++  return function FastModeSwitches(props: {
++    control: <T>(endpoint: string, payload?: unknown) => Promise<T>
++    t: Translate
++    className?: string
++  }) {
++    return React.createElement('div', {
++      className: props.className ?? 'dshRemoteFastModeSwitches',
++    },
++      React.createElement('span', { className: 'dshRemoteFastModeGroupTitle' }, props.t('fastModeGroupTitle')),
++      TOGGLE_ORDER.map(key => React.createElement(RemoteToggleSwitch, {
++        key,
++        control: props.control,
++        t: props.t,
++        configKey: key,
++      })))
++  }
++}
+diff --git a/packages/plugin/src/client/shell.ts b/packages/plugin/src/client/shell.ts
+index 4727623a..189b1ee5 100644
+--- a/packages/plugin/src/client/shell.ts
++++ b/packages/plugin/src/client/shell.ts
+@@ -78,6 +78,10 @@ export function installStyle(clientModuleId: string): () => void {
+     '.dshRemoteSidebarEntry.isWide.hasUpdate .dshRemoteModeButton{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-brand-primary-new-colorprimary-new-color,var(--dsw-alias-brand-primary)) 20%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary-new-colorprimary-new-color,var(--dsw-alias-brand-primary)) 8%,transparent);color:var(--dsw-alias-brand-primary-new-colorprimary-new-color,var(--dsw-alias-brand-primary));font-weight:500}.dshRemoteSidebarEntry .dshRemoteModeButton,.dshRemoteAccountEntry .dshRemoteAccountEntryButton{position:relative}.dshRemoteUpdateSuffix{flex:0 0 auto;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;font-weight:500}.dshRemoteUpdateDot{position:absolute;inset-inline-end:2px;top:2px;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-brand-primary-new-colorprimary-new-color,var(--dsw-alias-brand-primary))}',
+     '.dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteManageHosts{color:var(--dsw-alias-label-secondary);font-size:12px;text-decoration:none;white-space:nowrap}.dshRemoteManageHosts:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}',
+     '.dshRemoteSectionTitle{flex:1}.dshRemoteSectionTitle>.dshRemoteConnectedMenu{margin-left:auto}',
++    // The fork's fast-mode row: its own line under the host section heading so
++    // upstream edits to `.dshRemoteSectionTitle` never move it.
++    '.dshRemoteFastModeSwitches{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:0 0 12px}',
++    '.dshRemoteFastModeGroupTitle{font-size:12px;opacity:.62;white-space:nowrap;margin-right:4px}',
+     '.dshRemoteAcpSetting{display:block!important;width:100%}.dshRemoteAcpSetting>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;cursor:pointer;list-style:none}.dshRemoteAcpSetting>summary::-webkit-details-marker{display:none}.dshRemoteAcpSummaryText{min-width:0;flex:1}.dshRemoteAcpSummaryText strong{display:block;line-height:1.45}.dshRemoteAcpSummaryText p{max-width:58ch;margin:4px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.45}.dshRemoteDocLink{color:var(--dsw-alias-brand-primary);font-weight:500;text-decoration:none}.dshRemoteDocLink:hover{text-decoration:underline;text-underline-offset:3px}.dshRemoteDocLink:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;border-radius:3px}.dshRemoteAcpSummaryMeta{flex:0 0 auto;display:inline-flex;align-items:center;gap:10px}.dshRemoteAcpCountText{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}.dshRemoteAcpChevron{flex:0 0 auto;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary);transition:transform .18s ease-out,color .15s}.dshRemoteAcpSetting>summary:hover .dshRemoteAcpChevron{color:var(--dsw-alias-label-primary)}.dshRemoteAcpSetting[open]>summary .dshRemoteAcpChevron{transform:rotate(180deg)}',
+     '.dshRemoteAcpList{display:flex;flex-direction:column;margin-top:10px;padding-left:16px;border-top:1px solid var(--dsw-alias-border-l3)}.dshRemoteAcpRow{display:flex;flex-direction:column;gap:4px;padding:10px 0}.dshRemoteAcpRow+.dshRemoteAcpRow{border-top:1px solid var(--dsw-alias-border-l3)}.dshRemoteAcpRowMain{display:grid;grid-template-columns:minmax(0,1fr) auto 38px;align-items:center;column-gap:16px;min-width:0}.dshRemoteAcpRowInfo{display:flex;align-items:center;gap:12px;min-width:0}.dshRemoteAcpName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:1.45;color:var(--dsw-alias-label-primary)}',
+     '.dshRemoteAcpStatus{display:inline-flex;align-items:center;gap:6px;min-width:0;font-size:12px;font-weight:400;line-height:1.45;color:var(--dsw-alias-label-tertiary);white-space:nowrap}.dshRemoteAcpStatus::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-label-dimmed);flex:0 0 auto}.dshRemoteAcpStatus.isPassed{color:var(--dsw-alias-label-secondary)}.dshRemoteAcpStatus.isPassed::before{background:var(--dsw-alias-state-success-primary)}.dshRemoteAcpStatus.isFailed{color:var(--dsw-alias-state-danger-primary)}.dshRemoteAcpStatus.isFailed::before{background:var(--dsw-alias-state-danger-primary)}.dshRemoteAcpStatus.isChecking{color:var(--dsw-alias-label-secondary)}.dshRemoteAcpStatus.isChecking::before{background:var(--dsw-alias-brand-primary)}',
+diff --git a/packages/plugin/src/client/types.ts b/packages/plugin/src/client/types.ts
+index 15c443b6..dbf4364d 100644
+--- a/packages/plugin/src/client/types.ts
++++ b/packages/plugin/src/client/types.ts
+@@ -208,6 +208,7 @@ interface PluginSettings {
+   remoteTools?: { enabled?: boolean }
+   forceRelay?: boolean
+   logLevel?: 'debug' | 'info' | 'warn' | 'error'
++  liteMode?: boolean
+   reconnect?: boolean | {
+     enabled?: boolean
+     initialDelayMs?: number
+diff --git a/packages/plugin/src/client/workspaces.ts b/packages/plugin/src/client/workspaces.ts
+index 284d675a..4fd7a9c3 100644
+--- a/packages/plugin/src/client/workspaces.ts
++++ b/packages/plugin/src/client/workspaces.ts
+@@ -3,6 +3,7 @@ import { mountAccountEntry } from './account-entry.js'
+ import { watchFooterLane, type FooterForm } from './footer-lane.js'
+ import { createHostPairingPanel } from './pairing.js'
+ import { createServerNotice } from './server-notice.js'
++import { createFastModeSwitches } from './fast-mode-switches.js'
+ import { renderBodyPortal } from './portal.js'
+ import QRCode from 'qrcode'
+ import type { Translate } from '../client-locale.js'
+@@ -38,6 +39,7 @@ const hostedServerUrl = 'https://dsh.r2049.cn'
+ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalRenderer) {
+   const ServerNotice = createServerNotice(React)
+   const HostPairingPanel = createHostPairingPanel(React)
++  const FastModeSwitches = createFastModeSwitches(React)
+   const RemoteProgressView = createRemoteProgressView(React)
+ 
+   /**
+@@ -1131,7 +1133,7 @@ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalR
+     const updateNotice = updateInfo !== undefined && localUpdateAvailable
+       ? t('updateAvailable', { latest: updateInfo.latestVersion, current: updateInfo.currentVersion })
+       : undefined
+-    const releasesUrl = 'https://github.com/liguobao/ds-harness-remote/releases'
++    const releasesUrl = 'https://github.com/rainow/ds-harness-remote-fast/releases'
+     const canUpgradeInPlace = updateInfo?.upgrade === 'ready'
+     const startLocalUpgrade = async (): Promise<void> => {
+       if (!canUpgradeInPlace || updateInfo === undefined) return
+@@ -1523,6 +1525,7 @@ export function createRemoteWorkspaceAction(React: ClientReact, portal?: PortalR
+                         onChange: (event: Event) => void setCurrentDeviceControl((event.target as HTMLInputElement).checked),
+                       })) : null,
+                     connectedMenu)),
++                React.createElement(FastModeSwitches, { control: props.control, t }),
+                 React.createElement('div', {
+                   className: `dshRemoteHostList${connectingHost === undefined ? '' : ' isCollapsed'}`,
+                   'aria-busy': connectingHost === undefined ? undefined : true,
+diff --git a/packages/plugin/src/compact-history.ts b/packages/plugin/src/compact-history.ts
+index 8854e5d8..e9a781fe 100644
+--- a/packages/plugin/src/compact-history.ts
++++ b/packages/plugin/src/compact-history.ts
+@@ -17,6 +17,9 @@ const TOOL_EVENT_TYPES = new Set([
+   'tool/code-dispatch',
+   'tool/code-dispatch-start',
+ ])
++/** Tools whose result the client renders as an in-chat card: the component tree lives in
++ *  `arguments`, and `meta` decides whether the card is rendered at all. */
++const UI_TOOL_NAMES = new Set(['ui_render', 'ui_patch', 'ui_render_widget', 'ui_compose'])
+ const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
+ 
+ type Budget = { remaining: number }
+@@ -36,18 +39,32 @@ function summary(value: unknown, budget: Budget): string {
+   return preservedRound(text, budget) ?? text.slice(0, LIMIT) + MARKER
+ }
+ 
+-function toolValue(value: unknown, budget: Budget): unknown {
+-  if (Array.isArray(value)) return value.map(item => toolValue(item, budget))
++function toolValue(value: unknown, budget: Budget, keepUiPayload = false): unknown {
++  if (Array.isArray(value)) return value.map(item => toolValue(item, budget, keepUiPayload))
+   if (!object(value)) return value
+   const result: Record<string, unknown> = { ...value }
++  const toolName = typeof value.name === 'string' ? value.name
++    : typeof value.toolName === 'string' ? value.toolName : undefined
++  const keepUi = keepUiPayload || (toolName !== undefined && UI_TOOL_NAMES.has(toolName))
+   for (const [key, child] of Object.entries(value)) {
+-    if (['input', 'arguments', 'output', 'result', 'rawInput', 'rawOutput', 'uiResultMeta', 'meta', 'argumentsDelta', 'code'].includes(key)) {
+-      result[key] = typeof child === 'string' ? summary(child, budget) : { summary: summary(child, budget) }
++    if (key === 'meta' || key === 'uiResultMeta') {
++      // The client renders an in-chat card only when `meta.ok` / `meta.ui` survive intact;
++      // wrapping this object in `{ summary }` silently drops the whole card.
++      result[key] = child
++    } else if (['input', 'arguments', 'output', 'result', 'rawInput', 'rawOutput', 'argumentsDelta', 'code'].includes(key)) {
++      // A UI tool's component tree is its arguments: truncating or wrapping them makes the
++      // client's JSON.parse fail, so keep them byte-exact for those tools only.
++      if (keepUi && (key === 'arguments' || key === 'argumentsDelta' || key === 'input')) result[key] = child
++      else result[key] = typeof child === 'string' ? summary(child, budget) : { summary: summary(child, budget) }
+     } else if (key === 'content' && Array.isArray(child)) {
+       let previews = 0
+       const blocks = child.flatMap(block => {
+         // Keep every tool correlation block, even when several share a message.
+         if (object(block) && (block.type === 'tool-call' || block.type === 'tool-result')) return [toolValue(block, budget)]
++        // An image/file block carries only an attachment reference: flattening it
++        // to `{ summary }` text both loses the image and leaks a truncated JSON
++        // blob into the transcript, so keep the block intact.
++        if (object(block) && ['image', 'file', 'audio', 'video'].includes(String(block.type))) return [block]
+         const preview = object(block) ? block.text ?? block : block
+         // A recognised group round is conversation content: keep it even when it
+         // would fall outside the two-preview budget. Earlier previews already go
+diff --git a/packages/plugin/src/config.ts b/packages/plugin/src/config.ts
+index 161ca835..55c9a141 100644
+--- a/packages/plugin/src/config.ts
++++ b/packages/plugin/src/config.ts
+@@ -39,6 +39,12 @@ export interface Config {
+    */
+   rotatePinnedPeerKey?: boolean
+   logLevel?: 'debug' | 'info' | 'warn' | 'error'
++  /**
++   * Send remote clients only what they need: the initial history page keeps the latest
++   * few messages and oversized plugin projections are dropped. Cuts the first-paint
++   * payload from megabytes to kilobytes on large sessions. Default: false.
++   */
++  liteMode?: boolean
+   reconnect?: boolean | {
+     initialDelayMs?: number
+     maxDelayMs?: number
+@@ -90,6 +96,7 @@ export interface ResolvedConfig {
+   detachedApprovalGraceSec?: number
+   rotatePinnedPeerKey: boolean
+   logLevel: 'debug' | 'info' | 'warn' | 'error'
++  liteMode: boolean
+   reconnect: {
+     enabled: boolean
+     initialDelayMs: number
+@@ -135,6 +142,7 @@ export const entryConfigSchema = s.object({
+   detachedApprovalGraceSec: s.number(),
+   rotatePinnedPeerKey: s.boolean(),
+   logLevel: s.union(['debug', 'info', 'warn', 'error'] as const),
++  liteMode: s.boolean().default(true),
+   reconnect: s.union([
+     s.boolean(),
+     s.object({
+@@ -193,6 +201,7 @@ const configSchema = z.object({
+   detachedApprovalGraceSec: z.number().finite().optional(),
+   rotatePinnedPeerKey: z.boolean().optional(),
+   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
++  liteMode: z.boolean().optional(),
+   reconnect: reconnectSchema.optional(),
+   codex: z.object({
+     enabled: z.boolean().optional(),
+@@ -242,6 +251,7 @@ export function resolveConfig(input: ConfigInput = {}, env: NodeJS.ProcessEnv =
+     detachedApprovalGraceSec: clampDetachedApprovalGraceSec(parsed.detachedApprovalGraceSec),
+     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
+     logLevel: parsed.logLevel ?? 'info',
++    liteMode: parsed.liteMode !== false,
+     reconnect: {
+       enabled: parsed.reconnect !== false,
+       initialDelayMs,
+diff --git a/packages/plugin/src/control-runtime.ts b/packages/plugin/src/control-runtime.ts
+index 549bce96..ad9622db 100644
+--- a/packages/plugin/src/control-runtime.ts
++++ b/packages/plugin/src/control-runtime.ts
+@@ -1,7 +1,10 @@
+ import { hostname } from 'node:os'
+ import { existsSync } from 'node:fs'
+-import { execFileSync } from 'node:child_process'
++import { execFile, execFileSync } from 'node:child_process'
++import { promisify } from 'node:util'
+ import type { ControlResult } from './control-result.js'
++import { setLiteModeEnabled } from './lite-mode.js'
++import { setForceRelayEnabled } from './relay-preference.js'
+ import { resolveConfig, type Config, type ConfigInput, type ResolvedConfig } from './config.js'
+ import {
+   ClientModeError,
+@@ -32,6 +35,8 @@ import { defaultCheckExecutable, installOrConfigureBackend, isBuiltinAcpBackend,
+ import type { AcpAuthDiagnostic } from '@dsh-remote/protocol'
+ import type { HostLogSnapshot, HostLogStore, PluginLogFilter } from './host-log-store.js'
+ 
++const execFileAsync = promisify(execFile)
++
+ export interface PluginSettingsView {
+   config: Config
+   deviceName: string
+@@ -171,6 +176,8 @@ export class PluginControlRuntime {
+       }
+       if (endpoint === 'settings.development.set') return ok(await this.setDevelopment(payload))
+       if (endpoint === 'settings.appearance.set') return ok(await this.setAppearance(payload))
++      if (endpoint === 'settings.lite.set') return ok(await this.setLite(payload))
++      if (endpoint === 'settings.forceRelay.set') return ok(await this.setForceRelay(payload))
+       if (endpoint === 'settings.get') return ok(await this.settingsView())
+       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
+       if (endpoint === 'settings.server.set') return ok(await this.setServer(payload))
+@@ -429,6 +436,40 @@ export class PluginControlRuntime {
+     return { ...await this.settingsView(), applies: this.startupFailure === undefined ? 'live' : 'restart' }
+   }
+ 
++  private async setLite(payload: unknown): Promise<PluginSettingsView> {
++    if (this.settings === undefined) {
++      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
++    }
++    const enabled = record(payload).enabled
++    if (typeof enabled !== 'boolean') {
++      throw new ClientModeError('INVALID_MESSAGE', 'The lite mode switch must be a boolean.')
++    }
++    const current = editableConfig(resolveConfig(this.settings.get()))
++    await this.settings.replace({ ...current, liteMode: enabled })
++    setLiteModeEnabled(enabled)
++    return { ...await this.settingsView(), applies: 'live' }
++  }
++
++  /**
++   * Relay-only preference. Applies to new connections; the Host re-dials the
++   * Server so its advertised capabilities (and the Server-side negotiation)
++   * drop LAN/P2P/TURN right away.
++   */
++  private async setForceRelay(payload: unknown): Promise<PluginSettingsView> {
++    if (this.settings === undefined) {
++      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
++    }
++    const enabled = record(payload).enabled
++    if (typeof enabled !== 'boolean') {
++      throw new ClientModeError('INVALID_MESSAGE', 'The relay preference must be a boolean.')
++    }
++    const current = editableConfig(resolveConfig(this.settings.get()))
++    await this.settings.replace({ ...current, forceRelay: enabled })
++    setForceRelayEnabled(enabled)
++    this.host?.reconnectHost()
++    return { ...await this.settingsView(), applies: 'live' }
++  }
++
+   private async setRole(payload: unknown): Promise<PluginSettingsView> {
+     if (this.settings === undefined) {
+       throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+@@ -847,7 +888,7 @@ function commandAvailable(command: string): boolean {
+   }
+ }
+ 
+-function editableConfig(config: ResolvedConfig): Config {
++export function editableConfig(config: ResolvedConfig): Config {
+   return {
+     enabled: config.enabled,
+     role: config.role,
+@@ -861,6 +902,7 @@ function editableConfig(config: ResolvedConfig): Config {
+     forceRelay: config.forceRelay,
+     detachedApprovalGraceSec: config.detachedApprovalGraceSec,
+     logLevel: config.logLevel,
++    liteMode: config.liteMode,
+     reconnect: config.reconnect.enabled
+       ? {
+           initialDelayMs: config.reconnect.initialDelayMs,
+diff --git a/packages/plugin/src/harness-remote-bridge.ts b/packages/plugin/src/harness-remote-bridge.ts
+index 81163db7..019b09a0 100644
+--- a/packages/plugin/src/harness-remote-bridge.ts
++++ b/packages/plugin/src/harness-remote-bridge.ts
+@@ -1,4 +1,5 @@
+ import { compactHistory } from './compact-history.js'
++import { applyLiteMode, isLiteModeEnabled } from './lite-mode.js'
+ import { randomUUID } from 'node:crypto'
+ import { homedir } from 'node:os'
+ import { lstat, realpath, stat } from 'node:fs/promises'
+@@ -371,7 +372,7 @@ export class HarnessRemoteBridge {
+     if (params.endpoint === 'dsBot/feed') throw new RpcError('METHOD_NOT_ALLOWED', 'Use a stream for this DS Bot feed endpoint.')
+     if (['settings/update', 'settings/replace', 'settings/mutate'].includes(params.endpoint)) {
+       const args = requestArgs(params.payload)
+-      if (args.ns === 'ds-harness-remote' || args.ns === 'dsh-remote') {
++      if (args.ns === 'ds-harness-remote-fast' || args.ns === 'ds-harness-remote' || args.ns === 'dsh-remote') {
+         throw new RpcError('PERMISSION_DENIED', 'Remote access settings can only be changed locally on the Host.')
+       }
+     }
+@@ -915,12 +916,41 @@ export class HarnessRemoteBridge {
+             // Read-only event observation must never disrupt the forwarded stream.
+           }
+         }
+-        const frame: HarnessRemoteFrameData = {
++        let frame: HarnessRemoteFrameData = {
+           streamId,
+           hasValue: true,
+-          ...(value === undefined ? {} : { value: historyFollow && this.compactHistoryEnabled && isCompactSnapshot(value) ? compactHistory(value) : value }),
++          ...(value === undefined ? {} : { value: historyFollow && (this.compactHistoryEnabled || isLiteModeEnabled()) && isCompactSnapshot(value) ? compactHistory(value) : value }),
+         }
+-        if (encodeMessage(createEvent('harness.remote.frame', frame)).byteLength > MAX_SECURE_MESSAGE_BYTES) {
++        if (isLiteModeEnabled()) {
++          const shaped = applyLiteMode(frame) as HarnessRemoteFrameData | undefined
++          if (shaped === undefined) {
++            // Only unknown/cosmetic projections are dropped; log so a missing
++            // client update can be traced back to fast mode instead of guessed.
++            const layer = isJsonRecord(frame.value) ? frame.value : undefined
++            const bytes = layer === undefined ? 0 : Buffer.byteLength(JSON.stringify(layer.value ?? null))
++            this.logger?.debug('fast mode dropped projection frame', {
++              streamId,
++              key: typeof layer?.key === 'string' ? layer.key : 'unknown',
++              bytes,
++            })
++            continue
++          }
++          frame = shaped
++        }
++        const encoded = encodeMessage(createEvent('harness.remote.frame', frame))
++        const bytes = encoded.byteLength
++        // Peak-only telemetry: fast mode is usually visible here, and logging
++        // every small frame would drown the log.
++        if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
++          const value = isJsonRecord(frame.value) ? frame.value : undefined
++          this.logger?.info('outbound frame', {
++            type: typeof value?.type === 'string' ? value.type : 'unknown',
++            bytes,
++            lite: isLiteModeEnabled(),
++            transferFrames,
++          })
++        }
++        if (bytes > MAX_SECURE_MESSAGE_BYTES) {
+           if (!transferFrames) throw new Error('Oversized Harness Remote frame')
+           await this.transferStreamFrame(frame, signal)
+         } else {
+@@ -1576,6 +1606,10 @@ function needsDirectoryFallback(result: TypertRpcResult): boolean {
+     || message.includes('directory-picker-unavailable')
+ }
+ 
++/** Frames at or above this size are logged so an A/B run is measurable. */
++const FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024
++
++
+ const SESSION_PROJECTION_WHITELIST = new Set([
+   'permissions',
+   'remoteStatusKnown',
+@@ -1726,7 +1760,7 @@ export function filterSessionListProjections(
+ function filterRemotePluginInventory(endpoint: string, result: TypertRpcResult): TypertRpcResult {
+   if (!result.ok) return result
+   const isRemote = (value: unknown): boolean => typeof value === 'string'
+-    && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
++    && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
+   const filterEntries = (entries: unknown[]): unknown[] => entries.filter(entry =>
+     !isRecord(entry) || !isRemote(entry.moduleName))
+   if (endpoint === 'pluginManager/listPlugins' && Array.isArray(result.value)) {
+@@ -1765,7 +1799,7 @@ function isCompactSnapshot(value: unknown): boolean {
+ /** Whether one official plugin-manager row belongs to this Remote plugin or its bundle. */
+ function remoteOwnedBundleRow(row: Record<string, unknown>, plugin: boolean): boolean {
+   const remoteModule = (value: unknown): boolean => typeof value === 'string'
+-    && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
++    && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value)
+   if (remoteModule(plugin ? row.moduleName : row.name)) return true
+   return !plugin && (!Array.isArray(row.rows)
+     || row.rows.some(value => !isRecord(value) || remoteModule(value.moduleName))
+diff --git a/packages/plugin/src/index.ts b/packages/plugin/src/index.ts
+index 59151f31..d9cac9ba 100644
+--- a/packages/plugin/src/index.ts
++++ b/packages/plugin/src/index.ts
+@@ -36,6 +36,8 @@ import { TypertGatewaySwitch } from './typert-gateway-switch.js'
+ import type { FileViewerHostServiceLike } from './file-viewer-bridge.js'
+ import { createPluginRouteDispatcher, type PluginRouteConnectionLike } from './plugin-route-dispatcher.js'
+ import { installRemoteDiscoveryTools } from './remote-tools.js'
++import { editableConfig } from './control-runtime.js'
++import { setLiteModeEnabled } from './lite-mode.js'
+ import { runHmrSafe, type HmrContextLike } from './hmr-safe-settings.js'
+ import { PluginUpdateChecker } from './update-check.js'
+ import { LocalPluginUpgrade, type PluginManagerUpdate } from './plugin-self-update.js'
+@@ -55,7 +57,7 @@ declare module '@deepseek-ai/cordis' {
+   }
+ }
+ 
+-export const name = 'ds-harness-remote'
++export const name = 'ds-harness-remote-fast'
+ export { Config }
+ 
+ // The unscoped dsh-remote package belongs to another publisher. A bare name
+@@ -586,7 +588,17 @@ async function activate(
+       await logStore.flush()
+     }
+   }, 'ds-harness-remote lifecycle')
+-  if (config.remoteTools?.enabled) installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? undefined : clientRuntime)
++  if (config.remoteTools?.enabled) {
++    installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? undefined : clientRuntime, settingsBinding === undefined ? undefined : {
++      fastMode: () => resolveConfig(readConfig()).liteMode === true,
++      setFastMode: async (enabled: boolean) => {
++        const current = editableConfig(resolveConfig(readConfig()))
++        await settingsBinding.replace({ ...current, liteMode: enabled })
++        setLiteModeEnabled(enabled)
++        return enabled
++      },
++    })
++  }
+ }
+ 
+ function mountControlEffect(
+diff --git a/packages/plugin/src/lite-mode.ts b/packages/plugin/src/lite-mode.ts
+new file mode 100644
+index 00000000..3b05639c
+--- /dev/null
++++ b/packages/plugin/src/lite-mode.ts
+@@ -0,0 +1,174 @@
++/**
++ * Lite mode: shrink what a remote client receives on first paint.
++ *
++ * Large sessions make the initial `snapshot` frame megabytes wide (hundreds of
++ * records plus per-session projections such as the context-lens panel). Clients
++ * that cannot chunk a frame (`transferFrames: false`, e.g. the web client) hit
++ * "Oversized Harness Remote frame" and the whole connection drops. Lite mode
++ * keeps the frame small instead:
++ *
++ * - `records` is trimmed to the newest few entries (the client still sees
++ *   `hasMore: true`, so it can page back for older ones),
++ * - projections above {@link LITE_PROJECTION_MAX_BYTES} are dropped, while a
++ *   small keep-list of projections the UI needs to render survives regardless.
++ *
++ * Only data sent over the wire is affected; the session store and the agent
++ * context are untouched.
++ */
++
++/**
++ * Projections a remote client must never miss: they drive the chrome and, more
++ * importantly, live state the user is acting on (permission switches, pending
++ * questions, turn status). These bypass the size caps -- dropping one leaves the
++ * client permanently stale while the Host has already applied the change.
++ *
++ * Mirrors the core keys the Host itself keeps in SESSION_PROJECTION_WHITELIST
++ * (see harness-remote-bridge.ts). Deliberately a copy, not an import: lite-mode
++ * must not depend on the bridge, and adding a key here is a product decision.
++ */
++export const LITE_PROJECTION_KEEP_KEYS: ReadonlySet<string> = new Set([
++  // chrome that frames the conversation
++  'title',
++  'sessionTitle',
++  'conversationTitle',
++  'label',
++  'name',
++  'summary',
++  'modelSelection',
++  'model',
++  'agentPreset',
++  'imageLimits',
++  'sessionListMetadata',
++  // live state: permissions, questions, turn lifecycle
++  'permissions',
++  'remoteStatusKnown',
++  'codexStatus',
++  'inbox',
++  'agentTeam',
++  'turnOutline',
++  'turn',
++  'turnState',
++  'status',
++  'activeTurnId',
++  'userQuestions',
++])
++
++/** Projections larger than this many bytes are dropped in lite mode. */
++export const LITE_PROJECTION_MAX_BYTES = 16 * 1024
++
++/**
++ * Total budget for one frame's projections. Individual entries can be small and
++ * still add up (dozens of sessions in one baseline), so the frame is capped.
++ */
++export const LITE_PROJECTION_BUDGET_BYTES = 256 * 1024
++
++/** How many records the initial history page keeps in lite mode. */
++export const LITE_HISTORY_RECORDS = 10
++
++/**
++ * Process-wide switch, mirroring how the plugin wires other runtime flags: the Host
++ * and its bridges live in one process, so a single module-level value is enough and
++ * a toggle applies to the next frame instead of requiring a reconnect.
++ */
++let enabled = false
++
++/** Whether lite mode is currently on. */
++export function isLiteModeEnabled(): boolean {
++  return enabled
++}
++
++/** Flip lite mode for subsequent frames. */
++export function setLiteModeEnabled(next: boolean): void {
++  enabled = next === true
++}
++
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === 'object' && value !== null && !Array.isArray(value)
++}
++
++function sizeOf(value: unknown): number {
++  try {
++    return Buffer.byteLength(JSON.stringify(value))
++  } catch {
++    return Number.POSITIVE_INFINITY
++  }
++}
++
++/**
++ * Keep the render-critical projections, then the smallest of the rest while the
++ * frame stays under {@link LITE_PROJECTION_BUDGET_BYTES}.
++ */
++export function filterLiteProjections(projections: unknown): unknown {
++  if (!isRecord(projections)) return projections
++  const kept: Record<string, unknown> = {}
++  const candidates: Array<{ key: string, value: unknown, size: number }> = []
++  let used = 0
++  for (const [key, value] of Object.entries(projections)) {
++    const size = sizeOf(value)
++    if (LITE_PROJECTION_KEEP_KEYS.has(key)) {
++      kept[key] = value
++      used += size
++      continue
++    }
++    if (size <= LITE_PROJECTION_MAX_BYTES) candidates.push({ key, value, size })
++  }
++  candidates.sort((left, right) => left.size - right.size)
++  for (const { key, value, size } of candidates) {
++    if (used + size > LITE_PROJECTION_BUDGET_BYTES) break
++    kept[key] = value
++    used += size
++  }
++  return kept
++}
++
++/**
++ * Apply lite-mode shaping to one history frame.
++ * @returns the (possibly rewritten) frame, or `undefined` when the whole frame
++ *   should be skipped because it carries only a dropped projection.
++ */
++export function applyLiteMode(frame: unknown): unknown {
++  if (!isRecord(frame) || !isRecord(frame.value)) return frame
++  const layer = frame.value
++  if (layer.type === 'baseline' && isRecord(layer.value)) {
++    const inner = layer.value
++    if (!isRecord(inner.projections)) return frame
++    // Shape is `projections[sessionId] = { asOfSeq, values: { key: value } }`
++    // (see client-core `applyProjectionBaseline`). Filter the inner `values`
++    // map -- filtering the block itself would treat `asOfSeq`/`values` as
++    // projection keys and drop the whole block once it grew past the cap,
++    // which silently loses permissions/questions on first paint.
++    const projections: Record<string, unknown> = {}
++    for (const [sessionId, block] of Object.entries(inner.projections)) {
++      if (!isRecord(block) || !isRecord(block.values)) {
++        projections[sessionId] = block
++        continue
++      }
++      projections[sessionId] = { ...block, values: filterLiteProjections(block.values) }
++    }
++    return { ...frame, value: { ...layer, value: { ...inner, projections } } }
++  }
++  if (layer.type === 'snapshot') {
++    // The snapshot payload is either the layer itself or nested under `value`,
++    // depending on the backend that produced it.
++    const nested = isRecord(layer.value)
++    const inner: Record<string, unknown> = { ...(nested ? (layer.value as Record<string, unknown>) : layer) }
++    if (Array.isArray(inner.records) && inner.records.length > LITE_HISTORY_RECORDS) {
++      inner.records = inner.records.slice(-LITE_HISTORY_RECORDS)
++      inner.hasMore = true
++    }
++    if (isRecord(inner.projections) && isRecord(inner.projections.values)) {
++      inner.projections = { ...inner.projections, values: filterLiteProjections(inner.projections.values) }
++    }
++    return { ...frame, value: nested ? { ...layer, value: inner } : inner }
++  }
++  if (layer.type === 'projection') {
++    // A projection frame is a live update of one key. Dropping a state-bearing
++    // key silently desynchronises the client (permissions applied on the Host
++    // but never shown, questions never surfaced), so only unknown/cosmetic keys
++    // are allowed to be dropped for size.
++    const key = typeof layer.key === 'string' ? layer.key : undefined
++    if (key !== undefined && LITE_PROJECTION_KEEP_KEYS.has(key)) return frame
++    if (sizeOf(layer.value) > LITE_PROJECTION_MAX_BYTES) return undefined
++  }
++  return frame
++}
+diff --git a/packages/plugin/src/relay-preference.ts b/packages/plugin/src/relay-preference.ts
+new file mode 100644
+index 00000000..4be7a892
+--- /dev/null
++++ b/packages/plugin/src/relay-preference.ts
+@@ -0,0 +1,33 @@
++/**
++ * Relay preference ("force relay"): the data plane skips LAN, internet-direct
++ * (P2P) and TURN probing and goes straight to the encrypted relay.
++ *
++ * Why a runtime switch instead of reading the config every time: the Host
++ * advertises its transport capabilities when it dials the Server, and the
++ * Client walks its attempt list per connection. Both read this process-wide
++ * flag so a toggle applies without rebuilding the plugin, mirroring
++ * {@link ./lite-mode.ts}. Seeded from `config.forceRelay` at startup; the
++ * config keeps working for users who set it statically.
++ */
++
++import type { TransportAttempt } from './client-runtime-contract.js'
++
++let enabled = false
++
++/** Whether the relay-only preference is currently on. */
++export function isForceRelayEnabled(): boolean {
++  return enabled
++}
++
++/** Flip the relay-only preference for subsequent connections. */
++export function setForceRelayEnabled(next: boolean): void {
++  enabled = next === true
++}
++
++/**
++ * Attempts a Client walks when connecting. A Host without a usable WebRTC
++ * backend can only relay, so both cases collapse to a single attempt.
++ */
++export function transportAttempts(forceRelay: boolean, rtcAvailable: boolean): TransportAttempt[] {
++  return forceRelay || !rtcAvailable ? ['relay'] : ['direct', 'turn', 'relay']
++}
+diff --git a/packages/plugin/src/remote-tools.ts b/packages/plugin/src/remote-tools.ts
+index af22e344..b7cf7635 100644
+--- a/packages/plugin/src/remote-tools.ts
++++ b/packages/plugin/src/remote-tools.ts
+@@ -171,10 +171,42 @@ export function remoteSessionTools(resolve: () => Pick<ClientModeRuntime, 'runSe
+   }))
+ }
+ 
+-export function installRemoteDiscoveryTools(ctx: Context, resolve: () => ClientModeRuntime | undefined): void {
++/** Host-local switches the local agent may flip on the user's behalf. */
++/** Host-local switches the local agent may flip on the user's behalf. */
++export interface RemoteLocalSwitches {
++  /** Persist and apply fast (lite) mode; resolves to the new state. */
++  setFastMode(enabled: boolean): Promise<boolean>
++  fastMode(): boolean
++}
++
++/** Agent tool for the Host-side fast-mode switch (no remote host involved). */
++export function localSwitchTools(switches: RemoteLocalSwitches): RemoteToolDefinition[] {
++  const input = z.object({ enabled: z.boolean() }).strict()
++  return [{
++    name: 'remote_fast_mode',
++    description: 'Turn this Host\'s fast mode (极速模式) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.',
++    parameters: object({ enabled: { type: 'boolean' } }, ['enabled']),
++    output: {
++      schema: object({ enabled: { type: 'boolean' } }, ['enabled']),
++      render: (_args: unknown, value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value) }],
++    },
++    execute: async (args: unknown) => ({ enabled: await switches.setFastMode(input.parse(args).enabled) }),
++  }]
++}
++
++export function installRemoteDiscoveryTools(
++  ctx: Context,
++  resolve: () => ClientModeRuntime | undefined,
++  switches?: RemoteLocalSwitches,
++): void {
+   ctx.inject(['tools'], toolContext => {
+     const tools = toolContext.get('tools') as { register(definition: RemoteToolDefinition): () => void }
+-    for (const definition of [...remoteDiscoveryTools(resolve), ...remoteSessionTools(resolve)]) {
++    const definitions = [
++      ...remoteDiscoveryTools(resolve),
++      ...remoteSessionTools(resolve),
++      ...(switches === undefined ? [] : localSwitchTools(switches)),
++    ]
++    for (const definition of definitions) {
+       toolContext.effect(() => tools.register(definition))
+     }
+   })
+diff --git a/packages/plugin/src/server-connection.ts b/packages/plugin/src/server-connection.ts
+index c538365f..70b45504 100644
+--- a/packages/plugin/src/server-connection.ts
++++ b/packages/plugin/src/server-connection.ts
+@@ -51,6 +51,7 @@ import {
+   type RtcSignal,
+ } from '@dsh-remote/webrtc'
+ import type { ConnectionCloseDetail, ConnectionController } from './connection-controller.js'
++import { isForceRelayEnabled } from './relay-preference.js'
+ import type { ResolvedConfig } from './config.js'
+ import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
+ import type { SafeLogger } from './logging.js'
+@@ -112,6 +113,18 @@ export function resolveWebRtcNegotiateTimeoutMs(hint: unknown): number {
+   return Math.min(MAX_WEBRTC_NEGOTIATE_TIMEOUT_MS, Math.max(MIN_WEBRTC_NEGOTIATE_TIMEOUT_MS, hint))
+ }
+ 
++/**
++ * Transport capabilities the Host announces in `hello`. Relay-only wins when
++ * the operator forces the relay or when this Host has no WebRTC backend: the
++ * Server then never negotiates LAN/P2P/TURN for this device and the initiator
++ * has nothing to probe.
++ */
++export function advertisedTransportCapabilities(forceRelay: boolean, rtcAvailable: boolean): string[] {
++  return forceRelay || !rtcAvailable
++    ? ['transport.relay', 'transport.relay.attach']
++    : ['transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', 'transport.relay.attach']
++}
++
+ export class HostServerConnection {
+   private socket?: WebSocketLike
+   private forceCloseSocket?: (code: number, reason: string) => void
+@@ -286,9 +299,13 @@ export class HostServerConnection {
+   private async connectOnce(): Promise<void> {
+     const credentials = await this.api.authenticate(this.identity)
+     if (this.stopped) return
+-    const offeredCapabilities = this.rtcFactoryProvider === undefined || this.config.forceRelay
+-      ? [RELAY_RESUME_CAPABILITY, ATTENTION_SIGNAL_CAPABILITY, 'transport.relay', 'transport.relay.attach', ...this.hostCapabilities()]
+-      : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY, ATTENTION_SIGNAL_CAPABILITY, 'transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', 'transport.relay.attach', ...this.hostCapabilities()]
++    const forceRelay = isForceRelayEnabled() || this.config.forceRelay
++    const offeredCapabilities = [
++      ...(forceRelay || this.rtcFactoryProvider === undefined ? [RELAY_RESUME_CAPABILITY] : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY]),
++      ATTENTION_SIGNAL_CAPABILITY,
++      ...advertisedTransportCapabilities(forceRelay, this.rtcFactoryProvider !== undefined),
++      ...this.hostCapabilities(),
++    ]
+     const recoveryTickets = [...this.tunnels.values()].flatMap(tunnel => tunnel.lease?.recoveryTicket() ?? []).slice(0, 64)
+     const socket = this.createWebSocket(websocketUrl(this.api.baseUrl))
+     this.socket = socket
+@@ -1003,7 +1020,7 @@ export class HostServerConnection {
+       this.logger.warn('duplicate webrtc offer ignored', { connectionId: shortId(tunnel.connectionId) })
+       return
+     }
+-    if (this.config.forceRelay) {
++    if (this.config.forceRelay || isForceRelayEnabled()) {
+       // Device-level forced degradation (webrtc plan §11).
+       this.logger.warn('webrtc offer ignored: forceRelay is enabled', { connectionId: shortId(tunnel.connectionId) })
+       return
+diff --git a/packages/plugin/src/service.ts b/packages/plugin/src/service.ts
+index 015d657b..715c2a67 100644
+--- a/packages/plugin/src/service.ts
++++ b/packages/plugin/src/service.ts
+@@ -13,6 +13,8 @@ import { resolveSessionWorkspaceRoot, workspaceUploadRootResolver } from './work
+ import { LoopbackHost } from './loopback-host.js'
+ import { TerminalPolicy } from './terminal-policy.js'
+ import { createEvent, REMOTE_SESSION_EVENTS_CAPABILITY, type RemoteWorkspaceTypeDescription } from '@dsh-remote/protocol'
++import { setLiteModeEnabled } from './lite-mode.js'
++import { setForceRelayEnabled } from './relay-preference.js'
+ import { ConnectionController } from './connection-controller.js'
+ import type { ResolvedConfig } from './config.js'
+ import type { HostIdentity, IdentityStore } from './identity-store.js'
+@@ -125,6 +127,8 @@ export class HostPluginRuntime {
+     attachmentHostPath?: (ref: MessageFileAttachment) => string | undefined,
+   ) {
+     this.terminalEnabled = config.terminal.enabled
++    setLiteModeEnabled(config.liteMode === true)
++    setForceRelayEnabled(config.forceRelay === true)
+     this.loopbackPorts = [...config.loopback.ports]
+     this.attention = new HostAttentionTracker({
+       localGateway,
+diff --git a/packages/plugin/tests/client-runtime.test.ts b/packages/plugin/tests/client-runtime.test.ts
+index 943e58af..e5972699 100644
+--- a/packages/plugin/tests/client-runtime.test.ts
++++ b/packages/plugin/tests/client-runtime.test.ts
+@@ -1759,6 +1759,7 @@ function config(): ResolvedConfig {
+     forceRelay: false,
+     rotatePinnedPeerKey: false,
+     logLevel: 'error',
++    liteMode: false,
+     reconnect: { enabled: true, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
+     codex: { enabled: false, binary: 'codex' },
+     cursor: { enabled: false, binary: 'agent' },
+diff --git a/packages/plugin/tests/compact-history.test.ts b/packages/plugin/tests/compact-history.test.ts
+index cfce7554..9b48cdde 100644
+--- a/packages/plugin/tests/compact-history.test.ts
++++ b/packages/plugin/tests/compact-history.test.ts
+@@ -326,3 +326,30 @@ describe('compact group round preservation', () => {
+     await bridge.closeAll()
+   })
+ })
++
++describe('compact history attachment blocks', () => {
++  const attachment = { attachmentId: `sha256:${'a'.repeat(64)}`, mediaType: 'image/png', bytes: 101954, width: 860, height: 220, name: 'shot.png' }
++  it('keeps image blocks intact so remote clients can still resolve the attachment', () => {
++    const record = {
++      type: 'event',
++      event: {
++        type: 'tool/result', seq: 12,
++        data: {
++          callId: 'tool-img', turn: 1,
++          message: { source: { callId: 'tool-img' }, content: [
++            { type: 'tool-result', toolCallId: 'tool-img', content: [
++              { type: 'text', text: 'ok\n' },
++              { type: 'image', attachment },
++            ] },
++          ] },
++        },
++      },
++      view: { for: 'result', view: { title: 'browser_screenshot' } },
++    }
++    const result = compactHistory({ cursor: 12, throughSeq: 12, hasMore: false, records: [record] })
++    const content = (result.records[0] as typeof record).event.data.message.content as unknown as { type: string; content: unknown[] }[]
++    const blocks = content[0]!.content as { type: string; attachment?: unknown }[]
++    expect(blocks.some(block => block.type === 'image')).toBe(true)
++    expect(blocks.find(block => block.type === 'image')!.attachment).toEqual(attachment)
++  })
++})
+diff --git a/packages/plugin/tests/control-runtime.test.ts b/packages/plugin/tests/control-runtime.test.ts
+index ce8dbd75..1fc3f972 100644
+--- a/packages/plugin/tests/control-runtime.test.ts
++++ b/packages/plugin/tests/control-runtime.test.ts
+@@ -135,6 +135,35 @@ describe('PluginControlRuntime settings setup', () => {
+     expect(apply.mock.calls[0]?.[0].codex.enabled).toBe(true)
+   })
+ 
++  it('reads back the lite mode switch and keeps it across unrelated saves', async () => {
++    const directory = await temporaryDirectory()
++    const settings = settingsBinding({})
++    const handler = register(new PluginControlRuntime(resolveConfig(settings.get()), directory, settings, undefined, undefined))
++    await expect(handler('settings.lite.set', { enabled: true }, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { liteMode: true } } })
++    await expect(handler('settings.get', {}, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { liteMode: true } } })
++    await expect(handler('settings.development.set', { terminalEnabled: false }, signal()))
++      .resolves.toMatchObject({ ok: true })
++    expect(settings.get().liteMode).toBe(true)
++  })
++
++  it('persists and reports the force-relay preference', async () => {
++    const directory = await temporaryDirectory()
++    const settings = settingsBinding({})
++    const handler = register(new PluginControlRuntime(resolveConfig(settings.get()), directory, settings, undefined, undefined))
++    await expect(handler('settings.forceRelay.set', { enabled: true }, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { forceRelay: true }, applies: 'live' } })
++    expect(settings.get().forceRelay).toBe(true)
++    await expect(handler('settings.get', {}, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { forceRelay: true } } })
++    await expect(handler('settings.forceRelay.set', { enabled: 'yes' }, signal()))
++      .resolves.toMatchObject({ ok: false, error: { details: { remoteCode: 'INVALID_MESSAGE' } } })
++    await expect(handler('settings.forceRelay.set', { enabled: false }, signal()))
++      .resolves.toMatchObject({ ok: true, value: { config: { forceRelay: false } } })
++    expect(settings.get().forceRelay).toBe(false)
++  })
++
+   it('coexists with a Remote Web UI that already owns /remote', async () => {
+     const channels = new Set(['/remote'])
+     const connection = {
+diff --git a/packages/plugin/tests/host-websocket-origin.test.ts b/packages/plugin/tests/host-websocket-origin.test.ts
+index 587b8f93..22aed907 100644
+--- a/packages/plugin/tests/host-websocket-origin.test.ts
++++ b/packages/plugin/tests/host-websocket-origin.test.ts
+@@ -383,6 +383,7 @@ function hostConnection(
+       serverUrl: baseUrl,
+       deviceName: 'Host',
+       forceRelay: true,
++      liteMode: true,
+       rotatePinnedPeerKey: false,
+       logLevel: 'error',
+       reconnect: reconnect ?? { enabled: false, initialDelayMs: 10, maxDelayMs: 20, jitter: 0 },
+diff --git a/packages/plugin/tests/lite-mode.test.ts b/packages/plugin/tests/lite-mode.test.ts
+new file mode 100644
+index 00000000..2dae6a08
+--- /dev/null
++++ b/packages/plugin/tests/lite-mode.test.ts
+@@ -0,0 +1,91 @@
++import { describe, expect, it } from 'vitest'
++import { resolveConfig } from '../src/config.js'
++import {
++  LITE_HISTORY_RECORDS,
++  LITE_PROJECTION_BUDGET_BYTES,
++  LITE_PROJECTION_MAX_BYTES,
++  applyLiteMode,
++  filterLiteProjections,
++} from '../src/lite-mode.js'
++
++const snapshot = (records: number, projections: Record<string, unknown> = {}) => ({
++  streamId: 'stream',
++  hasValue: true,
++  value: { type: 'snapshot', records: Array.from({ length: records }, (_, index) => ({ seq: index })), projections },
++})
++
++describe('lite mode', () => {
++  it('is on by default and can be turned off explicitly', () => {
++    expect(resolveConfig({}).liteMode).toBe(true)
++    expect(resolveConfig({ liteMode: false }).liteMode).toBe(false)
++    expect(resolveConfig({ liteMode: true }).liteMode).toBe(true)
++  })
++
++  it('keeps only the newest history page and reports hasMore', () => {
++    const shaped = applyLiteMode(snapshot(40)) as { value: { records: unknown[], hasMore: boolean } }
++    expect(shaped.value.records).toHaveLength(LITE_HISTORY_RECORDS)
++    expect(shaped.value.records.at(-1)).toEqual({ seq: 39 })
++    expect(shaped.value.hasMore).toBe(true)
++  })
++
++  it('drops oversized projections but keeps the render-critical ones', () => {
++    const projections = filterLiteProjections({
++      title: { text: 'x'.repeat(LITE_PROJECTION_MAX_BYTES * 2) },
++      contextLens: { requests: Array.from({ length: 500 }, () => 'y'.repeat(64)) },
++      smallPanel: { ok: true },
++    }) as Record<string, unknown>
++    expect(Object.keys(projections).sort()).toEqual(['smallPanel', 'title'])
++  })
++
++  it('bounds the total projection payload even when every entry is small', () => {
++    const projections = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`panel${index}`, 'z'.repeat(12 * 1024)]))
++    const kept = filterLiteProjections(projections) as Record<string, unknown>
++    const total = Buffer.byteLength(JSON.stringify(kept))
++    expect(Object.keys(kept).length).toBeLessThan(64)
++    expect(total).toBeLessThanOrEqual(LITE_PROJECTION_BUDGET_BYTES)
++  })
++
++  it('filters the baseline projection values, not the enclosing block', () => {
++    const heavy = 'x'.repeat(20 * 1024)
++    const frame = {
++      streamId: 's',
++      hasValue: true,
++      value: {
++        type: 'baseline',
++        value: {
++          projections: {
++            'session-1': {
++              asOfSeq: 42,
++              values: {
++                permissions: { currentValue: 'read-only', rules: heavy },
++                userQuestions: [{ id: 'q1', prompt: heavy.slice(0, 100) }],
++                contextLens: { requests: [heavy, heavy] },
++              },
++            },
++          },
++        },
++      },
++    }
++    const shaped = applyLiteMode(frame) as {
++      value: { value: { projections: Record<string, { asOfSeq: number, values: Record<string, unknown> }> } }
++    }
++    const block = shaped.value.value.projections['session-1']!
++    expect(block.asOfSeq).toBe(42)
++    expect(Object.keys(block.values).sort()).toEqual(['permissions', 'userQuestions'])
++  })
++
++  it('never drops a live projection that carries user-facing state', () => {
++    const big = 'x'.repeat(64 * 1024)
++    for (const key of ['permissions', 'userQuestions', 'inbox', 'turnState', 'status']) {
++      const frame = { streamId: 's', hasValue: true, value: { type: 'projection', key, seq: 3, value: { payload: big } } }
++      expect(applyLiteMode(frame)).toBeDefined()
++    }
++    // Cosmetic/plugin projections are still dropped when oversized.
++    expect(applyLiteMode({ streamId: 's', hasValue: true, value: { type: 'projection', key: 'contextLens', seq: 3, value: { payload: big } } })).toBeUndefined()
++  })
++
++  it('skips a projection frame that would only carry dropped data', () => {
++    expect(applyLiteMode({ streamId: 's', hasValue: true, value: { type: 'projection', value: 'q'.repeat(LITE_PROJECTION_MAX_BYTES * 2) } })).toBeUndefined()
++    expect(applyLiteMode({ streamId: 's', hasValue: true, value: { type: 'projection', value: { ok: true } } })).toBeDefined()
++  })
++})
+diff --git a/packages/plugin/tests/multi-client-runtime.test.ts b/packages/plugin/tests/multi-client-runtime.test.ts
+index b492e700..05e87ba1 100644
+--- a/packages/plugin/tests/multi-client-runtime.test.ts
++++ b/packages/plugin/tests/multi-client-runtime.test.ts
+@@ -879,6 +879,7 @@ function config(): ResolvedConfig {
+     forceRelay: true,
+     rotatePinnedPeerKey: false,
+     logLevel: 'error',
++    liteMode: false,
+     reconnect: { enabled: false, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
+     codex: { enabled: false, binary: 'codex' },
+     cursor: { enabled: false, binary: 'agent' },
+diff --git a/packages/plugin/tests/relay-preference.test.ts b/packages/plugin/tests/relay-preference.test.ts
+new file mode 100644
+index 00000000..e4f56589
+--- /dev/null
++++ b/packages/plugin/tests/relay-preference.test.ts
+@@ -0,0 +1,40 @@
++import { describe, expect, it } from 'vitest'
++import { advertisedTransportCapabilities } from '../src/server-connection.js'
++import {
++  isForceRelayEnabled,
++  setForceRelayEnabled,
++  transportAttempts,
++} from '../src/relay-preference.js'
++
++describe('force relay', () => {
++  it('collapses the attempt list to relay', () => {
++    expect(transportAttempts(true, true)).toEqual(['relay'])
++    expect(transportAttempts(false, true)).toEqual(['direct', 'turn', 'relay'])
++    // No WebRTC backend on this Host: relay is the only option anyway.
++    expect(transportAttempts(false, false)).toEqual(['relay'])
++  })
++
++  it('advertises relay-only capabilities to the Server', () => {
++    expect(advertisedTransportCapabilities(true, true)).toEqual(['transport.relay', 'transport.relay.attach'])
++    expect(advertisedTransportCapabilities(false, false)).toEqual(['transport.relay', 'transport.relay.attach'])
++    expect(advertisedTransportCapabilities(false, true)).toEqual([
++      'transport.lan',
++      'transport.p2p',
++      'transport.turn',
++      'transport.relay',
++      'transport.relay.attach',
++    ])
++  })
++
++  it('flips the process-wide preference', () => {
++    const original = isForceRelayEnabled()
++    try {
++      setForceRelayEnabled(true)
++      expect(isForceRelayEnabled()).toBe(true)
++      setForceRelayEnabled(false)
++      expect(isForceRelayEnabled()).toBe(false)
++    } finally {
++      setForceRelayEnabled(original)
++    }
++  })
++})
+diff --git a/packages/plugin/tests/server-connection.test.ts b/packages/plugin/tests/server-connection.test.ts
+index 1fcc34fa..948053ed 100644
+--- a/packages/plugin/tests/server-connection.test.ts
++++ b/packages/plugin/tests/server-connection.test.ts
+@@ -1427,6 +1427,7 @@ function config(): ResolvedConfig {
+     forceRelay: true,
+     rotatePinnedPeerKey: false,
+     logLevel: 'error',
++    liteMode: false,
+     reconnect: { enabled: false, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
+     codex: { enabled: false, binary: 'codex' },
+     cursor: { enabled: false, binary: 'agent' },
+-- 
+2.56.0
+

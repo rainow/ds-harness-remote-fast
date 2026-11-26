@@ -4210,7 +4210,7 @@ var require_ip_codec = __commonJS({
       exports2.encode = encode21;
       exports2.familyOf = familyOf;
       exports2.name = void 0;
-      exports2.sizeOf = sizeOf;
+      exports2.sizeOf = sizeOf2;
       exports2.v6 = exports2.v4 = void 0;
       const v4Regex = /^(\d{1,3}\.){3,3}\d{1,3}$/;
       const v4Size = 4;
@@ -4352,17 +4352,17 @@ var require_ip_codec = __commonJS({
       exports2.v6 = v6;
       const name2 = "ip";
       exports2.name = name2;
-      function sizeOf(ip) {
+      function sizeOf2(ip) {
         if (v4.isFormat(ip)) return v4.size;
         if (v6.isFormat(ip)) return v6.size;
         throw Error(`Invalid ip address: ${ip}`);
       }
       function familyOf(string9) {
-        return sizeOf(string9) === v4.size ? 1 : 2;
+        return sizeOf2(string9) === v4.size ? 1 : 2;
       }
       function encode21(ip, buff, offset2) {
         offset2 = ~~offset2;
-        const size2 = sizeOf(ip);
+        const size2 = sizeOf2(ip);
         if (typeof buff === "function") {
           buff = buff(offset2 + size2);
         }
@@ -81091,6 +81091,15 @@ var ClientConnection = class {
   }
 };
 
+// packages/plugin/src/relay-preference.ts
+var enabled = false;
+function isForceRelayEnabled() {
+  return enabled;
+}
+function setForceRelayEnabled(next) {
+  enabled = next === true;
+}
+
 // packages/plugin/src/client-reconnect.ts
 var ClientReconnect = class {
   constructor(config2) {
@@ -88102,6 +88111,7 @@ var entryConfigSchema = Schema.object({
   detachedApprovalGraceSec: Schema.number(),
   rotatePinnedPeerKey: Schema.boolean(),
   logLevel: Schema.union(["debug", "info", "warn", "error"]),
+  liteMode: Schema.boolean().default(true),
   reconnect: Schema.union([
     Schema.boolean(),
     Schema.object({
@@ -88148,6 +88158,7 @@ var configSchema = external_exports.object({
   detachedApprovalGraceSec: external_exports.number().finite().optional(),
   rotatePinnedPeerKey: external_exports.boolean().optional(),
   logLevel: external_exports.enum(["debug", "info", "warn", "error"]).optional(),
+  liteMode: external_exports.boolean().optional(),
   reconnect: reconnectSchema.optional(),
   codex: external_exports.object({
     enabled: external_exports.boolean().optional(),
@@ -88193,6 +88204,7 @@ function resolveConfig(input4 = {}, env = process.env) {
     detachedApprovalGraceSec: clampDetachedApprovalGraceSec(parsed.detachedApprovalGraceSec),
     rotatePinnedPeerKey: parsed.rotatePinnedPeerKey ?? false,
     logLevel: parsed.logLevel ?? "info",
+    liteMode: parsed.liteMode !== false,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,
@@ -88344,7 +88356,7 @@ function parseIpv6(value) {
 }
 
 // packages/plugin/src/version.ts
-var PLUGIN_VERSION = "0.6.8";
+var PLUGIN_VERSION = "0.6.8-fast.1";
 
 // packages/plugin/src/server-api.ts
 var TERMINAL_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
@@ -90962,7 +90974,7 @@ var ClientModeRuntime = class {
       ...this.clientAuthRequired && !this.connected && targetStatus.mode === "remote" ? { clientAuthRequired: true } : {},
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
       connectedTargetDeviceId: this.connected?.target.deviceId,
-      preferredTransports: this.config.forceRelay ? ["relay"] : ["lan", "p2p", "turn", "relay"],
+      preferredTransports: isForceRelayEnabled() || this.config.forceRelay ? ["relay"] : ["lan", "p2p", "turn", "relay"],
       ...this.connectionProgress === void 0 ? {} : {
         connectionProgress: {
           targetDeviceId: this.connectionProgress.targetDeviceId,
@@ -91104,9 +91116,9 @@ var ClientModeRuntime = class {
     const failure5 = results.find((result) => result.status === "rejected");
     if (failure5?.status === "rejected") throw failure5.reason;
   }
-  async setHostAuthorization(enabled) {
+  async setHostAuthorization(enabled3) {
     if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-    if (!enabled) {
+    if (!enabled3) {
       await this.host.clearHostAuthorization();
       return this.status();
     }
@@ -91831,7 +91843,113 @@ function remoteAcpCapabilities(features) {
 
 // packages/plugin/src/control-runtime.ts
 import { hostname as hostname4 } from "node:os";
-import { execFileSync as execFileSync3 } from "node:child_process";
+import { execFile as execFile4, execFileSync as execFileSync3 } from "node:child_process";
+import { promisify as promisify5 } from "node:util";
+
+// packages/plugin/src/lite-mode.ts
+var LITE_PROJECTION_KEEP_KEYS = /* @__PURE__ */ new Set([
+  // chrome that frames the conversation
+  "title",
+  "sessionTitle",
+  "conversationTitle",
+  "label",
+  "name",
+  "summary",
+  "modelSelection",
+  "model",
+  "agentPreset",
+  "imageLimits",
+  "sessionListMetadata",
+  // live state: permissions, questions, turn lifecycle
+  "permissions",
+  "remoteStatusKnown",
+  "codexStatus",
+  "inbox",
+  "agentTeam",
+  "turnOutline",
+  "turn",
+  "turnState",
+  "status",
+  "activeTurnId",
+  "userQuestions"
+]);
+var LITE_PROJECTION_MAX_BYTES = 16 * 1024;
+var LITE_PROJECTION_BUDGET_BYTES = 256 * 1024;
+var LITE_HISTORY_RECORDS = 10;
+var enabled2 = false;
+function isLiteModeEnabled() {
+  return enabled2;
+}
+function setLiteModeEnabled(next) {
+  enabled2 = next === true;
+}
+function isRecord12(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function sizeOf(value) {
+  try {
+    return Buffer.byteLength(JSON.stringify(value));
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+function filterLiteProjections(projections) {
+  if (!isRecord12(projections)) return projections;
+  const kept = {};
+  const candidates = [];
+  let used = 0;
+  for (const [key, value] of Object.entries(projections)) {
+    const size2 = sizeOf(value);
+    if (LITE_PROJECTION_KEEP_KEYS.has(key)) {
+      kept[key] = value;
+      used += size2;
+      continue;
+    }
+    if (size2 <= LITE_PROJECTION_MAX_BYTES) candidates.push({ key, value, size: size2 });
+  }
+  candidates.sort((left, right) => left.size - right.size);
+  for (const { key, value, size: size2 } of candidates) {
+    if (used + size2 > LITE_PROJECTION_BUDGET_BYTES) break;
+    kept[key] = value;
+    used += size2;
+  }
+  return kept;
+}
+function applyLiteMode(frame) {
+  if (!isRecord12(frame) || !isRecord12(frame.value)) return frame;
+  const layer = frame.value;
+  if (layer.type === "baseline" && isRecord12(layer.value)) {
+    const inner = layer.value;
+    if (!isRecord12(inner.projections)) return frame;
+    const projections = {};
+    for (const [sessionId, block] of Object.entries(inner.projections)) {
+      if (!isRecord12(block) || !isRecord12(block.values)) {
+        projections[sessionId] = block;
+        continue;
+      }
+      projections[sessionId] = { ...block, values: filterLiteProjections(block.values) };
+    }
+    return { ...frame, value: { ...layer, value: { ...inner, projections } } };
+  }
+  if (layer.type === "snapshot") {
+    const nested = isRecord12(layer.value);
+    const inner = { ...nested ? layer.value : layer };
+    if (Array.isArray(inner.records) && inner.records.length > LITE_HISTORY_RECORDS) {
+      inner.records = inner.records.slice(-LITE_HISTORY_RECORDS);
+      inner.hasMore = true;
+    }
+    if (isRecord12(inner.projections) && isRecord12(inner.projections.values)) {
+      inner.projections = { ...inner.projections, values: filterLiteProjections(inner.projections.values) };
+    }
+    return { ...frame, value: nested ? { ...layer, value: inner } : inner };
+  }
+  if (layer.type === "projection") {
+    const key = typeof layer.key === "string" ? layer.key : void 0;
+    if (key !== void 0 && LITE_PROJECTION_KEEP_KEYS.has(key)) return frame;
+    if (sizeOf(layer.value) > LITE_PROJECTION_MAX_BYTES) return void 0;
+  }
+  return frame;
+}
 
 // packages/plugin/src/pairing-contract.ts
 var pairingDeviceSchema = external_exports.object({
@@ -93073,7 +93191,7 @@ var HostAttentionTracker = class {
   createPeerRoute(connectionId, sendEvent) {
     return {
       list: () => this.list(),
-      follow: (enabled = true) => this.follow(connectionId, sendEvent, enabled),
+      follow: (enabled3 = true) => this.follow(connectionId, sendEvent, enabled3),
       unfollow: () => this.unfollow(connectionId),
       resolveToken: (token) => this.resolveToken(token),
       ackUnread: (itemIds) => this.ackUnread(itemIds),
@@ -93093,8 +93211,8 @@ var HostAttentionTracker = class {
   currentDigest() {
     return { ...this.lastDigest };
   }
-  follow(connectionId, send, enabled = true) {
-    if (this.closed || !enabled) {
+  follow(connectionId, send, enabled3 = true) {
+    if (this.closed || !enabled3) {
       this.unfollow(connectionId);
       return this.list();
     }
@@ -93247,16 +93365,16 @@ var HostAttentionTracker = class {
   // ── DS-Bot live PluginRouteBridge observation (zero idle polling) ─────────
   observeBotResponse(route, body, result) {
     if (this.closed || route !== "api/bot" || result.status !== 200) return;
-    if (!isRecord12(result.json) || result.json.ok !== true) return;
+    if (!isRecord13(result.json) || result.json.ok !== true) return;
     const value = result.json.value;
     if (body.endpoint === "approval-answer") {
-      const approvalId = isRecord12(body.payload) && typeof body.payload.id === "string" ? body.payload.id : void 0;
+      const approvalId = isRecord13(body.payload) && typeof body.payload.id === "string" ? body.payload.id : void 0;
       if (approvalId !== void 0) this.onInteractionResolved(botApprovalItemId(approvalId));
       return;
     }
     if (body.endpoint === "answer-question" || body.endpoint === "dismiss-question") {
-      const sessionId = isRecord12(body.payload) && typeof body.payload.sessionId === "string" ? body.payload.sessionId : void 0;
-      const questionId = isRecord12(body.payload) && typeof body.payload.questionId === "string" ? body.payload.questionId : void 0;
+      const sessionId = isRecord13(body.payload) && typeof body.payload.sessionId === "string" ? body.payload.sessionId : void 0;
+      const questionId = isRecord13(body.payload) && typeof body.payload.questionId === "string" ? body.payload.questionId : void 0;
       if (sessionId !== void 0 && questionId !== void 0) {
         this.onInteractionResolved(botQuestionItemId(sessionId, questionId));
       } else if (sessionId !== void 0) {
@@ -93267,7 +93385,7 @@ var HostAttentionTracker = class {
       }
       return;
     }
-    if (body.endpoint === "state" && isRecord12(value)) {
+    if (body.endpoint === "state" && isRecord13(value)) {
       this.observeBotState(value);
       return;
     }
@@ -93282,7 +93400,7 @@ var HostAttentionTracker = class {
     const workspaceId = typeof state2.workspaceId === "string" && state2.workspaceId.length > 0 ? state2.workspaceId : void 0;
     if (Array.isArray(state2.bots)) {
       for (const entry of state2.bots) {
-        if (!isRecord12(entry) || typeof entry.id !== "string" || typeof entry.sessionId !== "string") continue;
+        if (!isRecord13(entry) || typeof entry.id !== "string" || typeof entry.sessionId !== "string") continue;
         const name2 = typeof entry.name === "string" && entry.name.trim().length > 0 ? entry.name.trim() : entry.id;
         botNamesById.set(entry.id, { name: name2, sessionId: entry.sessionId });
         titleBySessionId.set(entry.sessionId, name2);
@@ -93297,7 +93415,7 @@ var HostAttentionTracker = class {
     }
     if (Array.isArray(state2.rooms)) {
       for (const entry of state2.rooms) {
-        if (!isRecord12(entry) || typeof entry.id !== "string") continue;
+        if (!isRecord13(entry) || typeof entry.id !== "string") continue;
         const sessionId = typeof entry.sessionId === "string" && entry.sessionId.length > 0 ? entry.sessionId : entry.id;
         const name2 = typeof entry.name === "string" && entry.name.trim().length > 0 ? entry.name.trim() : entry.id;
         roomNamesById.set(entry.id, { name: name2, sessionId });
@@ -93311,12 +93429,12 @@ var HostAttentionTracker = class {
         });
       }
     }
-    const work = isRecord12(state2.work) ? state2.work : void 0;
+    const work = isRecord13(state2.work) ? state2.work : void 0;
     const rawApprovals = Array.isArray(work?.approvals) ? work.approvals : Array.isArray(state2.approvals) ? state2.approvals : void 0;
     if (rawApprovals !== void 0) {
       const activeApprovalIds = /* @__PURE__ */ new Set();
       for (const approval of rawApprovals) {
-        if (!isRecord12(approval) || typeof approval.id !== "string" || approval.id.length === 0) continue;
+        if (!isRecord13(approval) || typeof approval.id !== "string" || approval.id.length === 0) continue;
         const bot = typeof approval.botId === "string" ? botNamesById.get(approval.botId) : void 0;
         const sessionId = (typeof approval.sessionId === "string" && approval.sessionId.length > 0 ? approval.sessionId : void 0) ?? bot?.sessionId ?? (typeof approval.botId === "string" && approval.botId.length > 0 ? approval.botId : approval.id);
         const itemId = botApprovalItemId(approval.id);
@@ -93341,10 +93459,10 @@ var HostAttentionTracker = class {
         }
       }
     }
-    if (isRecord12(state2.questions)) {
+    if (isRecord13(state2.questions)) {
       const activeQuestionIds = /* @__PURE__ */ new Set();
       for (const [sessionId, rawQuestion] of Object.entries(state2.questions)) {
-        if (!isRecord12(rawQuestion) || typeof rawQuestion.id !== "string" || rawQuestion.id.length === 0) continue;
+        if (!isRecord13(rawQuestion) || typeof rawQuestion.id !== "string" || rawQuestion.id.length === 0) continue;
         const itemId = botQuestionItemId(sessionId, rawQuestion.id);
         activeQuestionIds.add(itemId);
         const summary3 = firstNonEmptyString(rawQuestion.question, rawQuestion.title, rawQuestion.prompt, rawQuestion.text);
@@ -93365,9 +93483,9 @@ var HostAttentionTracker = class {
         }
       }
     }
-    if (work !== void 0 && (isRecord12(work.bots) || isRecord12(work.rooms))) {
+    if (work !== void 0 && (isRecord13(work.bots) || isRecord13(work.rooms))) {
       const activeSessionIds = /* @__PURE__ */ new Set();
-      if (isRecord12(work.bots)) {
+      if (isRecord13(work.bots)) {
         for (const [botId, workEntry] of Object.entries(work.bots)) {
           if (!isBotWorkActive(workEntry)) continue;
           const bot = botNamesById.get(botId);
@@ -93382,7 +93500,7 @@ var HostAttentionTracker = class {
           });
         }
       }
-      if (isRecord12(work.rooms)) {
+      if (isRecord13(work.rooms)) {
         for (const [roomId, workEntry] of Object.entries(work.rooms)) {
           if (!isBotWorkActive(workEntry)) continue;
           const room = roomNamesById.get(roomId);
@@ -93411,9 +93529,9 @@ var HostAttentionTracker = class {
     }
   }
   observeBotNotices(value) {
-    const entries = Array.isArray(value) ? value : isRecord12(value) && Array.isArray(value.notices) ? value.notices : isRecord12(value) && Array.isArray(value.items) ? value.items : [];
+    const entries = Array.isArray(value) ? value : isRecord13(value) && Array.isArray(value.notices) ? value.notices : isRecord13(value) && Array.isArray(value.items) ? value.items : [];
     for (const entry of entries) {
-      if (!isRecord12(entry)) continue;
+      if (!isRecord13(entry)) continue;
       const sessionId = firstNonEmptyString(entry.sessionId, entry.botId, entry.roomId, entry.id);
       if (sessionId === void 0) continue;
       const title = firstNonEmptyString(entry.title, entry.botName, entry.roomName) ?? "DS-Bot";
@@ -93516,7 +93634,7 @@ var HostAttentionTracker = class {
           while (!this.closed && !controller.signal.aborted) {
             const next = await iterator.next();
             if (next.done || this.closed || controller.signal.aborted) break;
-            if (isRecord12(next.value) && (next.value.type === "baseline" || next.value.type === "projection")) {
+            if (isRecord13(next.value) && (next.value.type === "baseline" || next.value.type === "projection")) {
               attempt = 0;
             }
             this.handleHarnessControlFrame(next.value);
@@ -93552,11 +93670,11 @@ var HostAttentionTracker = class {
     }
   }
   handleHarnessControlFrame(frame) {
-    if (!isRecord12(frame) || typeof frame.type !== "string") return;
-    if (frame.type === "baseline" && isRecord12(frame.value) && isRecord12(frame.value.projections)) {
+    if (!isRecord13(frame) || typeof frame.type !== "string") return;
+    if (frame.type === "baseline" && isRecord13(frame.value) && isRecord13(frame.value.projections)) {
       const sessionsWithUserQuestions = /* @__PURE__ */ new Set();
       for (const [sessionId, block] of Object.entries(frame.value.projections)) {
-        if (sessionId.length === 0 || !isRecord12(block) || !isRecord12(block.values)) continue;
+        if (sessionId.length === 0 || !isRecord13(block) || !isRecord13(block.values)) continue;
         const seq = typeof block.asOfSeq === "number" ? block.asOfSeq : void 0;
         if (Object.hasOwn(block.values, "title")) {
           this.applyHarnessControlProjection(sessionId, "title", block.values.title, seq);
@@ -93577,12 +93695,12 @@ var HostAttentionTracker = class {
       const seq = typeof frame.seq === "number" ? frame.seq : void 0;
       if (Array.isArray(frame.changes)) {
         for (const change of frame.changes) {
-          if (isRecord12(change) && change.key === "title") {
+          if (isRecord13(change) && change.key === "title") {
             this.applyHarnessControlProjection(frame.sessionId, "title", change.val, seq);
           }
         }
         for (const change of frame.changes) {
-          if (isRecord12(change) && change.key === "userQuestions") {
+          if (isRecord13(change) && change.key === "userQuestions") {
             this.applyHarnessControlProjection(frame.sessionId, "userQuestions", change.val, seq);
           }
         }
@@ -93617,12 +93735,12 @@ var HostAttentionTracker = class {
       }
       return;
     }
-    if (!isRecord12(value) || !Array.isArray(value.active)) return;
+    if (!isRecord13(value) || !Array.isArray(value.active)) return;
     if ("settled" in value && value.settled !== void 0 && !Array.isArray(value.settled)) return;
     if (seq !== void 0) this.rememberHarnessQuestionSeq(sessionId, seq);
     const nextActiveIds = /* @__PURE__ */ new Set();
     for (const row of value.active) {
-      if (!isRecord12(row) || typeof row.callId !== "string" || row.callId.length === 0) continue;
+      if (!isRecord13(row) || typeof row.callId !== "string" || row.callId.length === 0) continue;
       if (row.state !== "open" && row.state !== "continued") continue;
       if (row.questions !== void 0 && !Array.isArray(row.questions)) continue;
       const itemId = harnessProjectedQuestionItemId(sessionId, row.callId);
@@ -93645,7 +93763,7 @@ var HostAttentionTracker = class {
     }
     if (Array.isArray(value.settled)) {
       for (const row of value.settled) {
-        if (!isRecord12(row) || typeof row.callId !== "string" || row.callId.length === 0) continue;
+        if (!isRecord13(row) || typeof row.callId !== "string" || row.callId.length === 0) continue;
         const settledId = harnessProjectedQuestionItemId(sessionId, row.callId);
         if (!nextActiveIds.has(settledId)) this.onInteractionResolved(settledId);
       }
@@ -93673,12 +93791,12 @@ var HostAttentionTracker = class {
     });
   }
   handleHarnessEventFrame(frame) {
-    if (!isRecord12(frame) || typeof frame.type !== "string") return;
+    if (!isRecord13(frame) || typeof frame.type !== "string") return;
     if (frame.type === "emit" && typeof frame.event === "string" && Array.isArray(frame.args)) {
       this.handleHarnessEmit(frame.event, frame.args);
       return;
     }
-    if (frame.type === "waterfall" && typeof frame.eventId === "string" && typeof frame.agentId === "string" && isRecord12(frame.request)) {
+    if (frame.type === "waterfall" && typeof frame.eventId === "string" && typeof frame.agentId === "string" && isRecord13(frame.request)) {
       this.handleHarnessWaterfall(frame.event, frame.eventId, frame.agentId, frame.request);
       return;
     }
@@ -93708,9 +93826,9 @@ var HostAttentionTracker = class {
       case "api-session/added":
       case "api-session/updated": {
         const raw = args[0];
-        if (!isRecord12(raw) || typeof raw.sessionId !== "string" || raw.sessionId.length === 0) return;
+        if (!isRecord13(raw) || typeof raw.sessionId !== "string" || raw.sessionId.length === 0) return;
         const sessionId = raw.sessionId;
-        const projections = isRecord12(raw.projections) && isRecord12(raw.projections.values) ? raw.projections.values : void 0;
+        const projections = isRecord13(raw.projections) && isRecord13(raw.projections.values) ? raw.projections.values : void 0;
         const sessionTitle = firstNonEmptyString(projections?.title, raw.title, raw.name);
         const workspaceId = firstNonEmptyString(raw.workspaceId);
         const workspaceLabel = firstNonEmptyString(raw.workspaceLabel, raw.workspaceName);
@@ -93802,7 +93920,7 @@ var HostAttentionTracker = class {
     }
     if (event2 === "user-questions/request") {
       const summary3 = extractHarnessQuestionSummary(request2);
-      const wait = isRecord12(request2.wait) ? request2.wait : void 0;
+      const wait = isRecord13(request2.wait) ? request2.wait : void 0;
       const callId = typeof wait?.callId === "string" && wait.callId.length > 0 ? wait.callId : void 0;
       const itemId = callId === void 0 ? harnessQuestionItemId(eventId) : harnessProjectedQuestionItemId(sessionId, callId);
       if (callId !== void 0) {
@@ -94105,7 +94223,7 @@ function isBotWorkActive(value) {
   if (typeof value === "number") return value > 0;
   if (typeof value === "string") return value.trim().length > 0 && value !== "idle";
   if (Array.isArray(value)) return value.length > 0;
-  if (isRecord12(value)) {
+  if (isRecord13(value)) {
     if (value.active === false || value.running === false || value.status === "idle") return false;
     return Object.keys(value).length > 0;
   }
@@ -94114,7 +94232,7 @@ function isBotWorkActive(value) {
 function extractHarnessQuestionSummary(request2) {
   if (Array.isArray(request2.questions)) {
     for (const entry of request2.questions) {
-      if (isRecord12(entry)) {
+      if (isRecord13(entry)) {
         const text = firstNonEmptyString(entry.question, entry.header, entry.prompt, entry.title);
         if (text !== void 0) return text;
       } else if (typeof entry === "string" && entry.trim().length > 0) {
@@ -94130,7 +94248,7 @@ function firstNonEmptyString(...values) {
   }
   return void 0;
 }
-function isRecord12(value) {
+function isRecord13(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -94567,7 +94685,7 @@ var CodexAppServerClient = class {
       this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted invalid JSON."));
       return false;
     }
-    if (!isRecord13(value)) {
+    if (!isRecord14(value)) {
       this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted an invalid message."));
       return false;
     }
@@ -94658,7 +94776,7 @@ var CodexAppServerClient = class {
 var CODEX_THREAD_UNMATERIALIZED = "CODEX_THREAD_UNMATERIALIZED";
 var CODEX_UNMATERIALIZED_THREAD_MESSAGE = "Codex thread has no turns yet.";
 function safeUpstreamError(value, method) {
-  if (!isRecord13(value) || typeof value.message !== "string") {
+  if (!isRecord14(value) || typeof value.message !== "string") {
     return new CodexAppServerError("CODEX_UPSTREAM_ERROR", "Codex App Server rejected the request.");
   }
   const message = value.message.toLowerCase();
@@ -94679,7 +94797,7 @@ function safeUpstreamError(value, method) {
     message.includes("not initialized") ? "Codex App Server is not initialized." : "Codex App Server rejected the request."
   );
 }
-function isRecord13(value) {
+function isRecord14(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -94889,6 +95007,7 @@ var TOOL_EVENT_TYPES = /* @__PURE__ */ new Set([
   "tool/code-dispatch",
   "tool/code-dispatch-start"
 ]);
+var UI_TOOL_NAMES = /* @__PURE__ */ new Set(["ui_render", "ui_patch", "ui_render_widget", "ui_compose"]);
 var object3 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 function preservedRound(text, budget) {
   if (budget.remaining < LIMIT) return void 0;
@@ -94902,17 +95021,23 @@ function summary2(value, budget) {
   if (text.length <= LIMIT) return text;
   return preservedRound(text, budget) ?? text.slice(0, LIMIT) + MARKER;
 }
-function toolValue(value, budget) {
-  if (Array.isArray(value)) return value.map((item) => toolValue(item, budget));
+function toolValue(value, budget, keepUiPayload = false) {
+  if (Array.isArray(value)) return value.map((item) => toolValue(item, budget, keepUiPayload));
   if (!object3(value)) return value;
   const result = { ...value };
+  const toolName = typeof value.name === "string" ? value.name : typeof value.toolName === "string" ? value.toolName : void 0;
+  const keepUi = keepUiPayload || toolName !== void 0 && UI_TOOL_NAMES.has(toolName);
   for (const [key, child] of Object.entries(value)) {
-    if (["input", "arguments", "output", "result", "rawInput", "rawOutput", "uiResultMeta", "meta", "argumentsDelta", "code"].includes(key)) {
-      result[key] = typeof child === "string" ? summary2(child, budget) : { summary: summary2(child, budget) };
+    if (key === "meta" || key === "uiResultMeta") {
+      result[key] = child;
+    } else if (["input", "arguments", "output", "result", "rawInput", "rawOutput", "argumentsDelta", "code"].includes(key)) {
+      if (keepUi && (key === "arguments" || key === "argumentsDelta" || key === "input")) result[key] = child;
+      else result[key] = typeof child === "string" ? summary2(child, budget) : { summary: summary2(child, budget) };
     } else if (key === "content" && Array.isArray(child)) {
       let previews = 0;
       const blocks = child.flatMap((block) => {
         if (object3(block) && (block.type === "tool-call" || block.type === "tool-result")) return [toolValue(block, budget)];
+        if (object3(block) && ["image", "file", "audio", "video"].includes(String(block.type))) return [block];
         const preview = object3(block) ? block.text ?? block : block;
         const round = typeof preview === "string" && preview.length > LIMIT && previews >= 2 ? preservedRound(preview, budget) : void 0;
         if (round !== void 0) return [{ type: "text", text: round }];
@@ -95458,18 +95583,18 @@ function decodeCanonicalBase64(value) {
   }
   return decoded;
 }
-function isRecord14(value) {
+function isRecord15(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function safeErrorCode2(error62) {
-  if (isRecord14(error62) && typeof error62.code === "string") return error62.code;
+  if (isRecord15(error62) && typeof error62.code === "string") return error62.code;
   return "UNKNOWN";
 }
 function isResponseTooLargeError(error62) {
-  return isRecord14(error62) && error62.code === "RESPONSE_TOO_LARGE";
+  return isRecord15(error62) && error62.code === "RESPONSE_TOO_LARGE";
 }
 function safeMethod(input4) {
-  return isRecord14(input4) && typeof input4.method === "string" ? input4.method : "invalid";
+  return isRecord15(input4) && typeof input4.method === "string" ? input4.method : "invalid";
 }
 function concatChunks(chunks, totalBytes) {
   const output2 = new Uint8Array(totalBytes);
@@ -95802,7 +95927,7 @@ var CodexRemoteDomain = class {
     let active2 = true;
     try {
       const result = await this.callUpstream("thread/goal/get", { threadId }, 5e3);
-      if (!isRecord15(result) || !("goal" in result)) {
+      if (!isRecord16(result) || !("goal" in result)) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Goal.");
       }
       active2 = result.goal === null ? false : goalRetainsThread(result.goal, threadId);
@@ -96358,11 +96483,11 @@ var CodexRemoteDomain = class {
     }
     const threadId = extractThreadId(message.params);
     if (threadId !== void 0 && (message.method === "thread/goal/updated" || message.method === "thread/goal/cleared")) {
-      const active2 = message.method !== "thread/goal/cleared" && (!isRecord15(message.params) || goalRetainsThread(message.params.goal, threadId));
+      const active2 = message.method !== "thread/goal/cleared" && (!isRecord16(message.params) || goalRetainsThread(message.params.goal, threadId));
       this.threadGoals.set(threadId, { active: active2 });
       void this.threadLifecycle.retry(threadId);
     }
-    if (message.method === "thread/name/updated" && threadId !== void 0 && isRecord15(message.params)) {
+    if (message.method === "thread/name/updated" && threadId !== void 0 && isRecord16(message.params)) {
       const name2 = typeof message.params.name === "string" ? message.params.name : void 0;
       if (name2 !== void 0 && name2.trim().length > 0) this.rememberThreadMeta(threadId, { name: name2 });
     }
@@ -96383,13 +96508,13 @@ var CodexRemoteDomain = class {
       this.turnOwners.delete(threadId);
       this.clearTurnWatchdog(threadId);
       this.threadLifecycle.active(threadId, false);
-      const turn = isRecord15(message.params) && isRecord15(message.params.turn) ? message.params.turn : void 0;
+      const turn = isRecord16(message.params) && isRecord16(message.params.turn) ? message.params.turn : void 0;
       const turnStatus = typeof turn?.status === "string" ? turn.status : void 0;
       if (turnStatus === "interrupted" || turnStatus === "cancelled") {
         this.attention?.onSessionCancelled("codex", `codex:${threadId}`);
       } else {
         const failed = turnStatus === "failed";
-        const errorMessage = failed && isRecord15(turn?.error) && typeof turn.error.message === "string" ? turn.error.message : void 0;
+        const errorMessage = failed && isRecord16(turn?.error) && typeof turn.error.message === "string" ? turn.error.message : void 0;
         this.attention?.onSessionCompleted({
           ...this.attentionSessionInfo(threadId),
           failed,
@@ -96404,7 +96529,7 @@ var CodexRemoteDomain = class {
       this.declineApprovalsForThreadSync(threadId);
       this.threadLifecycle.active(threadId, false);
       if (wasActive) {
-        const statusType = isRecord15(message.params) && isRecord15(message.params.status) && typeof message.params.status.type === "string" ? message.params.status.type : void 0;
+        const statusType = isRecord16(message.params) && isRecord16(message.params.status) && typeof message.params.status.type === "string" ? message.params.status.type : void 0;
         if (statusType === "systemError" || statusType === "failed") {
           this.attention?.onSessionCompleted({ ...this.attentionSessionInfo(threadId), failed: true });
         }
@@ -96420,7 +96545,7 @@ var CodexRemoteDomain = class {
       this.armTurnWatchdog(threadId);
       this.attention?.onSessionRunning(this.attentionSessionInfo(threadId));
     }
-    if (message.method === "thread/status/changed" && threadId !== void 0 && isRecord15(message.params) && isRecord15(message.params.status) && message.params.status.type === "active") {
+    if (message.method === "thread/status/changed" && threadId !== void 0 && isRecord16(message.params) && isRecord16(message.params.status) && message.params.status.type === "active") {
       this.threadLifecycle.active(threadId, true);
     }
     if (message.method === "serverRequest/resolved") {
@@ -96429,7 +96554,7 @@ var CodexRemoteDomain = class {
         for (const entry of resolved) {
           const targetThreadId = threadId ?? entry.threadId;
           if (this.turnOwners.has(targetThreadId)) this.armTurnWatchdog(targetThreadId);
-          const params = isRecord15(message.params) ? { ...message.params, threadId: targetThreadId, requestHandle: entry.handle } : { threadId: targetThreadId, requestHandle: entry.handle };
+          const params = isRecord16(message.params) ? { ...message.params, threadId: targetThreadId, requestHandle: entry.handle } : { threadId: targetThreadId, requestHandle: entry.handle };
           await this.publishToThread(targetThreadId, {
             method: message.method,
             params
@@ -96600,7 +96725,7 @@ var CodexRemoteDomain = class {
     this.pruneFrameBuffer(threadId);
     const entry = this.recentFrames.get(threadId);
     if (entry === void 0) return;
-    const turns = Array.isArray(thread.turns) ? thread.turns.filter(isRecord15) : [];
+    const turns = Array.isArray(thread.turns) ? thread.turns.filter(isRecord16) : [];
     if (turns.length === 0) return;
     let activeTurn;
     for (let index = turns.length - 1; index >= 0; index -= 1) {
@@ -96631,7 +96756,7 @@ var CodexRemoteDomain = class {
       }
       if (Array.isArray(turn.items)) {
         for (const item of turn.items) {
-          if (isRecord15(item) && typeof item.id === "string" && item.id.length > 0) {
+          if (isRecord16(item) && typeof item.id === "string" && item.id.length > 0) {
             persistedItemIds.add(item.id);
           }
         }
@@ -96700,7 +96825,7 @@ var CodexRemoteDomain = class {
       if (codexPermissionPresetFromResponse(result) !== params.permissionPreset) {
         await this.callUpstream("thread/settings/update", { threadId, ...settings });
         assertCurrent();
-        result = { ...isRecord15(result) ? result : {}, ...settings, sandbox: settings.sandboxPolicy };
+        result = { ...isRecord16(result) ? result : {}, ...settings, sandbox: settings.sandboxPolicy };
       }
     }
     await this.publishPermission(threadId, result);
@@ -96708,7 +96833,7 @@ var CodexRemoteDomain = class {
   }
   async publishPermission(threadId, value) {
     if (!this.available) return;
-    const source = isRecord15(value) ? value : {};
+    const source = isRecord16(value) ? value : {};
     const threadSettings = { approvalPolicy: source.approvalPolicy, sandboxPolicy: source.sandboxPolicy ?? source.sandbox };
     const params = { threadId, threadSettings };
     this.rememberPermission(threadId, params);
@@ -96842,7 +96967,7 @@ var CodexRemoteDomain = class {
       if (legacyThread === void 0 || legacyThread.id !== threadId || !Array.isArray(legacyThread.turns)) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Thread history.");
       }
-      if (legacyThread.turns.some((turn) => !isRecord15(turn) || typeof turn.id !== "string" || !Array.isArray(turn.items) || turn.items.some((item) => !isRecord15(item)))) {
+      if (legacyThread.turns.some((turn) => !isRecord16(turn) || typeof turn.id !== "string" || !Array.isArray(turn.items) || turn.items.some((item) => !isRecord16(item)))) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid Thread history content.");
       }
       return legacyThread;
@@ -96876,17 +97001,17 @@ var CodexRemoteDomain = class {
         }
         throw error62;
       }
-      if (!isRecord15(result) || !Array.isArray(result.data)) {
+      if (!isRecord16(result) || !Array.isArray(result.data)) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Turn page.");
       }
       const pageResult = result;
       const pageTurns = await Promise.all(result.data.map(async (rawTurn) => {
-        if (!isRecord15(rawTurn) || typeof rawTurn.id !== "string" || rawTurn.id.length === 0 || rawTurn.itemsView === "full" && !Array.isArray(rawTurn.items)) {
+        if (!isRecord16(rawTurn) || typeof rawTurn.id !== "string" || rawTurn.id.length === 0 || rawTurn.itemsView === "full" && !Array.isArray(rawTurn.items)) {
           throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid history Turn.");
         }
         const inlineFull = rawTurn.itemsView === "full" || rawTurn.itemsView === void 0 && itemsView === "full" && Array.isArray(rawTurn.items);
         const items = inlineFull ? rawTurn.items : await this.readThreadItems(threadId, rawTurn.id);
-        if (items.some((item) => !isRecord15(item))) {
+        if (items.some((item) => !isRecord16(item))) {
           throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid history Item.");
         }
         return { ...rawTurn, items };
@@ -96908,11 +97033,11 @@ var CodexRemoteDomain = class {
         sortDirection: "asc",
         ...cursor3 === void 0 ? {} : { cursor: cursor3 }
       });
-      if (!isRecord15(result) || !Array.isArray(result.data)) {
+      if (!isRecord16(result) || !Array.isArray(result.data)) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Item page.");
       }
       for (const entry of result.data) {
-        if (!isRecord15(entry) || !isRecord15(entry.item)) {
+        if (!isRecord16(entry) || !isRecord16(entry.item)) {
           throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid history Item.");
         }
         items.push(entry.item);
@@ -97008,11 +97133,11 @@ var CodexRemoteDomain = class {
     });
   }
   findInboundThreadForResolved(params) {
-    if (!isRecord15(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return void 0;
+    if (!isRecord16(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return void 0;
     return this.pendingRequestThreads.get(params.requestId)?.threadId ?? this.findMatchingApprovals(params)[0]?.threadId;
   }
   findMatchingApprovals(params) {
-    if (!isRecord15(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return [];
+    if (!isRecord16(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return [];
     const matches = [];
     for (const [handle, approval] of this.approvals) {
       if (approval.upstreamId === params.requestId) {
@@ -97401,8 +97526,8 @@ function findImageBlock(value, attachmentId) {
     }
     return void 0;
   }
-  if (!isRecord15(value)) return void 0;
-  if (value.type === "image" && isRecord15(value.attachment) && value.attachment.attachmentId === attachmentId && typeof value.data === "string") {
+  if (!isRecord16(value)) return void 0;
+  if (value.type === "image" && isRecord16(value.attachment) && value.attachment.attachmentId === attachmentId && typeof value.data === "string") {
     return { attachment: value.attachment, data: value.data };
   }
   for (const child of Object.values(value)) {
@@ -97427,7 +97552,7 @@ function macOSCodexBinaryCandidates(userHome) {
     const codexCli = join6(chatGptApp, "Contents", "Resources", "codex-cli");
     try {
       const manifest = JSON.parse(readFileSync2(join6(codexCli, "codex-package.json"), "utf8"));
-      if (!isRecord15(manifest) || typeof manifest.entrypoint !== "string" || manifest.entrypoint.length === 0) {
+      if (!isRecord16(manifest) || typeof manifest.entrypoint !== "string" || manifest.entrypoint.length === 0) {
         return [];
       }
       const candidate = join6(codexCli, manifest.entrypoint);
@@ -97461,24 +97586,24 @@ function windowsBundledCodexCandidates(userHome) {
   }
 }
 function parseCallEnvelope(input4) {
-  if (!isRecord15(input4) || typeof input4.method !== "string" || !("params" in input4) || Object.keys(input4).some((key) => key !== "method" && key !== "params")) {
+  if (!isRecord16(input4) || typeof input4.method !== "string" || !("params" in input4) || Object.keys(input4).some((key) => key !== "method" && key !== "params")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex call envelope is invalid.");
   }
   return { method: input4.method, params: input4.params };
 }
 function parseRespond(input4) {
-  if (!isRecord15(input4) || typeof input4.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input4.decision)) || Object.keys(input4).some((key) => key !== "requestHandle" && key !== "decision")) {
+  if (!isRecord16(input4) || typeof input4.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input4.decision)) || Object.keys(input4).some((key) => key !== "requestHandle" && key !== "decision")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex approval response is invalid.");
   }
   return input4;
 }
 function accountCanRun(result) {
-  if (!isRecord15(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
-  return result.requiresOpenaiAuth === false || isRecord15(result.account);
+  if (!isRecord16(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
+  return result.requiresOpenaiAuth === false || isRecord16(result.account);
 }
 function sanitizeAccount(result) {
-  if (!isRecord15(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
-  const account = isRecord15(result.account) ? result.account : void 0;
+  if (!isRecord16(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
+  const account = isRecord16(result.account) ? result.account : void 0;
   return {
     authenticated: account !== void 0 || result.requiresOpenaiAuth === false,
     requiresOpenaiAuth: result.requiresOpenaiAuth === true,
@@ -97491,11 +97616,11 @@ function sanitizeAccount(result) {
   };
 }
 function sanitizeThreadList(result) {
-  if (!isRecord15(result) || !Array.isArray(result.data)) {
+  if (!isRecord16(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
   }
   const data2 = result.data.flatMap((value) => {
-    if (!isRecord15(value) || typeof value.id !== "string") return [];
+    if (!isRecord16(value) || typeof value.id !== "string") return [];
     return [{
       id: value.id,
       ...typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {},
@@ -97507,7 +97632,7 @@ function sanitizeThreadList(result) {
       ...typeof value.updatedAt === "number" && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {},
       ...typeof value.archived === "boolean" ? { archived: value.archived } : {},
       ...typeof value.isPinned === "boolean" ? { isPinned: value.isPinned } : {},
-      ...isRecord15(value.status) ? { status: value.status } : {}
+      ...isRecord16(value.status) ? { status: value.status } : {}
     }];
   });
   return {
@@ -97517,18 +97642,18 @@ function sanitizeThreadList(result) {
   };
 }
 function filterThreadListByWorkspaceAuthority(result, authority) {
-  if (!isRecord15(result) || !Array.isArray(result.data)) {
+  if (!isRecord16(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
   }
   return {
     ...result,
-    data: result.data.map((record12) => isRecord15(record12) ? record12 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
+    data: result.data.map((record12) => isRecord16(record12) ? record12 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
   };
 }
 function sanitizeProject(value) {
-  if (!isRecord15(value) || typeof value.id !== "string" || typeof value.name !== "string") return void 0;
+  if (!isRecord16(value) || typeof value.id !== "string" || typeof value.name !== "string") return void 0;
   const roots = Array.isArray(value.roots) ? value.roots.flatMap((root2) => {
-    const path = isRecord15(root2) && typeof root2.path === "string" && root2.path.length > 0 ? root2.path : void 0;
+    const path = isRecord16(root2) && typeof root2.path === "string" && root2.path.length > 0 ? root2.path : void 0;
     return path === void 0 || !isAbsolute3(path) ? [] : [{ path }];
   }) : [];
   if (roots.length === 0) return void 0;
@@ -97542,7 +97667,7 @@ function sanitizeProject(value) {
   };
 }
 function sanitizeProjectList(result) {
-  if (!isRecord15(result) || !Array.isArray(result.data)) {
+  if (!isRecord16(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid project list.");
   }
   const data2 = result.data.flatMap((value) => sanitizeProject(value) ?? []);
@@ -97552,7 +97677,7 @@ function sanitizeProjectList(result) {
   };
 }
 function sanitizeProjectCreate(result) {
-  const project2 = isRecord15(result) ? sanitizeProject(result.project) : void 0;
+  const project2 = isRecord16(result) ? sanitizeProject(result.project) : void 0;
   if (project2 === void 0) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid created project.");
   }
@@ -97584,27 +97709,27 @@ function codexDirectoryCrumbs(root2, path) {
   return crumbs2;
 }
 function extractThread(result) {
-  return isRecord15(result) && isRecord15(result.thread) ? result.thread : void 0;
+  return isRecord16(result) && isRecord16(result.thread) ? result.thread : void 0;
 }
 function extractTurnId(result) {
-  if (!isRecord15(result)) return void 0;
+  if (!isRecord16(result)) return void 0;
   if (typeof result.turnId === "string" && result.turnId.length > 0) return result.turnId;
-  if (isRecord15(result.turn) && typeof result.turn.id === "string" && result.turn.id.length > 0) return result.turn.id;
+  if (isRecord16(result.turn) && typeof result.turn.id === "string" && result.turn.id.length > 0) return result.turn.id;
   return void 0;
 }
 function extractThreadId(params) {
-  if (!isRecord15(params)) return void 0;
+  if (!isRecord16(params)) return void 0;
   if (typeof params.threadId === "string") return params.threadId;
-  if (isRecord15(params.thread) && typeof params.thread.id === "string") return params.thread.id;
-  if (isRecord15(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
+  if (isRecord16(params.thread) && typeof params.thread.id === "string") return params.thread.id;
+  if (isRecord16(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
   return void 0;
 }
 function goalRetainsThread(goal, threadId) {
-  if (!isRecord15(goal) || goal.threadId !== threadId || typeof goal.status !== "string") return true;
+  if (!isRecord16(goal) || goal.threadId !== threadId || typeof goal.status !== "string") return true;
   return !["complete", "paused", "blocked", "usageLimited", "budgetLimited"].includes(goal.status);
 }
 function isTerminalThreadStatus(params) {
-  if (!isRecord15(params) || !isRecord15(params.status) || typeof params.status.type !== "string") return false;
+  if (!isRecord16(params) || !isRecord16(params.status) || typeof params.status.type !== "string") return false;
   return params.status.type !== "active";
 }
 function optionalInteger3(value) {
@@ -97646,13 +97771,13 @@ function mapCodexImageInputs(params) {
   return {
     ...params,
     input: params.input.map((value) => {
-      if (!isRecord15(value) || value.type !== "image" || typeof value.mediaType !== "string" || typeof value.data !== "string") return value;
+      if (!isRecord16(value) || value.type !== "image" || typeof value.mediaType !== "string" || typeof value.data !== "string") return value;
       return { type: "image", url: `data:${value.mediaType};base64,${value.data}` };
     })
   };
 }
 function sanitizeApprovalParams(params, requestHandle) {
-  if (!isRecord15(params)) return { requestHandle };
+  if (!isRecord16(params)) return { requestHandle };
   const safe = { ...params };
   delete safe.proposedExecpolicyAmendment;
   delete safe.additionalPermissions;
@@ -97661,7 +97786,7 @@ function sanitizeApprovalParams(params, requestHandle) {
   return safe;
 }
 function codexApprovalSummary(method, params) {
-  if (isRecord15(params)) {
+  if (isRecord16(params)) {
     if (typeof params.command === "string" && params.command.trim().length > 0) return params.command.trim();
     if (typeof params.reason === "string" && params.reason.trim().length > 0) return params.reason.trim();
     if (typeof params.path === "string" && params.path.trim().length > 0) return params.path.trim();
@@ -97701,7 +97826,7 @@ function isProjectListFallbackError(error62) {
 function canTryNextBinary(error62) {
   return !(error62 instanceof RpcError) || !["CODEX_AUTH_REQUIRED", "CODEX_CLOSED"].includes(error62.code);
 }
-function isRecord15(value) {
+function isRecord16(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function maskId(value) {
@@ -97714,22 +97839,22 @@ function isUnpersistedThreadError(error62) {
   return error62 instanceof RpcError && error62.code === "CODEX_UPSTREAM_ERROR" && error62.message.toLowerCase().includes("not persisted yet");
 }
 function extractFrameTurnId(params) {
-  if (!isRecord15(params)) return void 0;
+  if (!isRecord16(params)) return void 0;
   if (typeof params.turnId === "string" && params.turnId.length > 0) return params.turnId;
-  if (isRecord15(params.turn) && typeof params.turn.id === "string" && params.turn.id.length > 0) return params.turn.id;
+  if (isRecord16(params.turn) && typeof params.turn.id === "string" && params.turn.id.length > 0) return params.turn.id;
   return void 0;
 }
 function extractFrameItemId(params) {
-  if (!isRecord15(params)) return void 0;
+  if (!isRecord16(params)) return void 0;
   if (typeof params.itemId === "string" && params.itemId.length > 0) return params.itemId;
-  if (isRecord15(params.item) && typeof params.item.id === "string" && params.item.id.length > 0) return params.item.id;
+  if (isRecord16(params.item) && typeof params.item.id === "string" && params.item.id.length > 0) return params.item.id;
   return void 0;
 }
 function isOversizedCodexFrame(frame) {
   return encodeMessage(createEvent("codex.app.frame", { streamId: MAX_STREAM_ID_PROBE, frame })).byteLength > MAX_SECURE_MESSAGE_BYTES;
 }
 function isResponseTooLargeError2(error62) {
-  return isRecord15(error62) && error62.code === "RESPONSE_TOO_LARGE";
+  return isRecord16(error62) && error62.code === "RESPONSE_TOO_LARGE";
 }
 function isUnmaterializedThreadError(error62) {
   return error62 instanceof RpcError && error62.code === CODEX_THREAD_UNMATERIALIZED;
@@ -97751,17 +97876,17 @@ var DEFAULT_LOGIN_COMMANDS = {
   hermes: "hermes setup"
 };
 function parseInitializeMetadata(result) {
-  if (!isRecord16(result)) {
+  if (!isRecord17(result)) {
     return { agentCapabilities: {}, authMethods: [] };
   }
-  const caps = isRecord16(result.agentCapabilities) ? result.agentCapabilities : {};
-  const promptCaps = isRecord16(caps.promptCapabilities) ? caps.promptCapabilities : void 0;
-  const sessionCaps = isRecord16(caps.sessionCapabilities) ? caps.sessionCapabilities : isRecord16(caps.session_capabilities) ? caps.session_capabilities : void 0;
-  const rawMeta = isRecord16(result._meta) ? result._meta : isRecord16(caps._meta) ? caps._meta : void 0;
-  const steering = isRecord16(rawMeta?.steering) && rawMeta.steering.supported === true;
-  const rawInfo = isRecord16(result.agentInfo) ? result.agentInfo : void 0;
+  const caps = isRecord17(result.agentCapabilities) ? result.agentCapabilities : {};
+  const promptCaps = isRecord17(caps.promptCapabilities) ? caps.promptCapabilities : void 0;
+  const sessionCaps = isRecord17(caps.sessionCapabilities) ? caps.sessionCapabilities : isRecord17(caps.session_capabilities) ? caps.session_capabilities : void 0;
+  const rawMeta = isRecord17(result._meta) ? result._meta : isRecord17(caps._meta) ? caps._meta : void 0;
+  const steering = isRecord17(rawMeta?.steering) && rawMeta.steering.supported === true;
+  const rawInfo = isRecord17(result.agentInfo) ? result.agentInfo : void 0;
   const authMethods = Array.isArray(result.authMethods) ? result.authMethods.flatMap((item) => {
-    if (!isRecord16(item) || typeof item.id !== "string" || typeof item.name !== "string") return [];
+    if (!isRecord17(item) || typeof item.id !== "string" || typeof item.name !== "string") return [];
     return [{
       id: item.id,
       name: item.name,
@@ -97788,12 +97913,12 @@ function parseInitializeMetadata(result) {
       } : {},
       ...sessionCaps ? {
         sessionCapabilities: {
-          ...isRecord16(sessionCaps.list) || sessionCaps.list === true ? { list: true } : {},
-          ...isRecord16(sessionCaps.fork) || sessionCaps.fork === true ? { fork: true } : {},
-          ...isRecord16(sessionCaps.delete) || sessionCaps.delete === true ? { delete: true } : {},
-          ...isRecord16(sessionCaps.resume) || sessionCaps.resume === true ? { resume: true } : {},
-          ...isRecord16(sessionCaps.close) || sessionCaps.close === true ? { close: true } : {},
-          ...isRecord16(sessionCaps.additionalDirectories) || sessionCaps.additionalDirectories === true ? { additionalDirectories: true } : {}
+          ...isRecord17(sessionCaps.list) || sessionCaps.list === true ? { list: true } : {},
+          ...isRecord17(sessionCaps.fork) || sessionCaps.fork === true ? { fork: true } : {},
+          ...isRecord17(sessionCaps.delete) || sessionCaps.delete === true ? { delete: true } : {},
+          ...isRecord17(sessionCaps.resume) || sessionCaps.resume === true ? { resume: true } : {},
+          ...isRecord17(sessionCaps.close) || sessionCaps.close === true ? { close: true } : {},
+          ...isRecord17(sessionCaps.additionalDirectories) || sessionCaps.additionalDirectories === true ? { additionalDirectories: true } : {}
         }
       } : {},
       ...steering ? { steering: true } : {}
@@ -97802,10 +97927,10 @@ function parseInitializeMetadata(result) {
   };
 }
 function detectUpstreamAuthFailure(backend, errorValue, authMethods = []) {
-  if (!isRecord16(errorValue)) return void 0;
+  if (!isRecord17(errorValue)) return void 0;
   const rpcCode = typeof errorValue.code === "number" ? errorValue.code : void 0;
   const messageText = typeof errorValue.message === "string" ? errorValue.message : "";
-  const dataMessage = isRecord16(errorValue.data) && typeof errorValue.data.message === "string" ? errorValue.data.message : "";
+  const dataMessage = isRecord17(errorValue.data) && typeof errorValue.data.message === "string" ? errorValue.data.message : "";
   const combined = `${messageText} ${dataMessage}`.trim();
   const lower = combined.toLowerCase();
   const browserOpenFailed = (rpcCode === -32602 || lower.includes("browser")) && lower.includes("open browser");
@@ -97853,10 +97978,10 @@ function buildAuthDiagnosticFromMetadata(backend, metadata, lastDiagnostic, read
   };
 }
 function parseAvailableCommands(update) {
-  if (!isRecord16(update) || !Array.isArray(update.availableCommands)) return [];
+  if (!isRecord17(update) || !Array.isArray(update.availableCommands)) return [];
   return update.availableCommands.flatMap((item) => {
-    if (!isRecord16(item) || typeof item.name !== "string" || item.name.trim().length === 0) return [];
-    const input4 = isRecord16(item.input) && typeof item.input.hint === "string" ? { hint: item.input.hint } : void 0;
+    if (!isRecord17(item) || typeof item.name !== "string" || item.name.trim().length === 0) return [];
+    const input4 = isRecord17(item.input) && typeof item.input.hint === "string" ? { hint: item.input.hint } : void 0;
     return [{
       name: item.name.trim(),
       ...typeof item.description === "string" ? { description: item.description } : {},
@@ -97877,7 +98002,7 @@ function extractSafeHttpsUrl(text) {
 function redactPaths(text) {
   return text.replace(/(["'])[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\\\r\n"']+?(?:\\[^\\\r\n"']+)*\1/gi, (quote) => `${quote[0]}<host-path>${quote[0]}`).replace(/[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\\\r\n:*?"<>|]+(?:\\[^\s\\/:*?"<>|'`]+)+/gi, "<host-path>").replace(/[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\s\\/:*?"<>|'`]+/gi, "<host-path>").replace(/(["'])\/(?:Users|home)\/[^/\r\n"']+?(?:\/[^/\r\n"']+)*\1/g, (quote) => `${quote[0]}<host-path>${quote[0]}`).replace(/\/(?:Users|home)\/[^/\r\n:*?"<>|]+(?:\/[^\s/:*?"<>|'`]+)+/g, "<host-path>").replace(/\/(?:Users|home)\/[^\s/:*?"<>|'`]+/g, "<host-path>");
 }
-function isRecord16(value) {
+function isRecord17(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -98114,7 +98239,7 @@ var CursorAcpClient = class {
   async call(method, params, timeoutMs) {
     if (!this.ready) throw new CursorAcpError(this.code("UNAVAILABLE"), `${this.adapterLabel} ACP is not ready.`);
     const backend = this.options.modelBackend ?? this.backend;
-    const id7 = isRecord17(params) && typeof params.sessionId === "string" ? params.sessionId : void 0;
+    const id7 = isRecord18(params) && typeof params.sessionId === "string" ? params.sessionId : void 0;
     if (method === "dsh/sessionCommands") {
       return { commands: id7 ? [...this.sessionCommands.get(id7) ?? []] : [] };
     }
@@ -98147,7 +98272,7 @@ var CursorAcpClient = class {
       if (!state2 || !id7) throw new CursorAcpError("ACP_SESSION_NOT_LOADED", "Load the ACP session before changing its mode.");
       if (method === "dsh/sessionModes") return state2.modesCatalog();
       if (this.modelBusy.has(id7)) throw new CursorAcpError("PROMPT_IN_PROGRESS", "Stop the reply before changing its mode.");
-      const modeId = isRecord17(params) ? params.modeId : void 0;
+      const modeId = isRecord18(params) ? params.modeId : void 0;
       this.modelBusy.add(id7);
       try {
         const result2 = await state2.setMode(
@@ -98191,7 +98316,7 @@ var CursorAcpClient = class {
       throw error62;
     }
     if (backend && (method === "session/new" || method === "session/load" || method === "session/fork")) {
-      const returnedId = isRecord17(result) && typeof result.sessionId === "string" ? result.sessionId : void 0;
+      const returnedId = isRecord18(result) && typeof result.sessionId === "string" ? result.sessionId : void 0;
       const sessionId = method === "session/load" ? id7 : returnedId;
       if (!this.ready || !sessionId || returnedId && returnedId !== sessionId) {
         if (provisionalLoad && id7) this.modelStates.delete(id7);
@@ -98367,7 +98492,7 @@ var CursorAcpClient = class {
       this.handleProcessFailure(this.code("INVALID_RESPONSE"), new Error(`${this.adapterLabel} ACP emitted invalid JSON.`));
       return;
     }
-    if (!isRecord17(value)) {
+    if (!isRecord18(value)) {
       this.handleProcessFailure(this.code("INVALID_RESPONSE"), new Error(`${this.adapterLabel} ACP emitted an invalid message.`));
       return;
     }
@@ -98390,9 +98515,9 @@ var CursorAcpClient = class {
     if (typeof value.method !== "string" || value.method.length === 0 || value.method.length > 160) return;
     const params = value.params ?? {};
     const inbound = value.method !== "session/update" && (typeof value.id === "string" || typeof value.id === "number") ? { kind: "request", id: value.id, method: value.method, params } : { kind: "notification", method: value.method, params };
-    if (inbound.kind === "notification" && inbound.method === "session/update" && isRecord17(params) && typeof params.sessionId === "string") {
+    if (inbound.kind === "notification" && inbound.method === "session/update" && isRecord18(params) && typeof params.sessionId === "string") {
       this.modelStates.get(params.sessionId)?.update(params.update);
-      if (isRecord17(params.update) && params.update.sessionUpdate === "available_commands_update") {
+      if (isRecord18(params.update) && params.update.sessionUpdate === "available_commands_update") {
         this.sessionCommands.set(params.sessionId, parseAvailableCommands(params.update));
       }
     }
@@ -98425,7 +98550,7 @@ var CursorAcpClient = class {
   }
 };
 function safeUpstreamError2(value, label = "Cursor") {
-  if (!isRecord17(value) || typeof value.message !== "string") return `${label} ACP rejected the request.`;
+  if (!isRecord18(value) || typeof value.message !== "string") return `${label} ACP rejected the request.`;
   const message = value.message.toLowerCase();
   if (message.includes("auth") || message.includes("login") || message.includes("api key")) {
     return `${label} ACP authentication failed.`;
@@ -98433,7 +98558,7 @@ function safeUpstreamError2(value, label = "Cursor") {
   if (message.includes("not initialized")) return `${label} ACP is not initialized.`;
   return `${label} ACP rejected the request.`;
 }
-function isRecord17(value) {
+function isRecord18(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -99452,10 +99577,10 @@ var RemoteTerminalState = class {
   }
 };
 var RemoteTerminalController = class {
-  constructor(shared, spawn5, enabled, scopeError) {
+  constructor(shared, spawn5, enabled3, scopeError) {
     this.shared = shared;
     this.spawn = spawn5;
-    this.enabled = enabled;
+    this.enabled = enabled3;
     this.scopeError = scopeError;
   }
   subscriptions = /* @__PURE__ */ new Set();
@@ -99880,8 +100005,8 @@ var WorkspaceBridge = class {
   }
 };
 function argsOf(payload) {
-  const value = isRecord18(payload) ? payload : {};
-  return isRecord18(value.args) ? value.args : value;
+  const value = isRecord19(payload) ? payload : {};
+  return isRecord19(value.args) ? value.args : value;
 }
 function toolScope(endpoint, args) {
   const session2 = args.agentId ?? args.sessionId;
@@ -99891,13 +100016,13 @@ function toolScope(endpoint, args) {
   }
   return session2;
 }
-function isRecord18(value) {
+function isRecord19(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function byteOrLineRange(args) {
-  const options = isRecord18(args.options) ? args.options : void 0;
-  if (options !== void 0 && isRecord18(options.range)) return options.range;
-  return isRecord18(args.range) ? args.range : args;
+  const options = isRecord19(args.options) ? args.options : void 0;
+  if (options !== void 0 && isRecord19(options.range)) return options.range;
+  return isRecord19(args.range) ? args.range : args;
 }
 function readOffset(args) {
   const range = byteOrLineRange(args);
@@ -99925,8 +100050,8 @@ var TERMINAL_STREAMS = /* @__PURE__ */ new Set(["terminal/follow", "terminal/ret
 var id4 = external_exports.string().regex(/^[A-Za-z0-9_:-]{1,256}$/);
 var rosterPayload = external_exports.object({ args: external_exports.object({ sessionId: id4 }).strict() }).strict();
 var TerminalPolicy = class _TerminalPolicy {
-  constructor(enabled, deviceId, owners) {
-    this.enabled = enabled;
+  constructor(enabled3, deviceId, owners) {
+    this.enabled = enabled3;
     this.deviceId = deviceId;
     this.owners = owners;
     this.claims = _TerminalPolicy.claims.get(owners) ?? /* @__PURE__ */ new Map();
@@ -100079,7 +100204,7 @@ var ClaudeAcpClient = class extends CursorAcpClient {
       this.clearAllLoadSuppressions();
     });
     super.onInbound((message) => {
-      const id7 = isRecord19(message.params) && typeof message.params.sessionId === "string" ? message.params.sessionId : void 0;
+      const id7 = isRecord20(message.params) && typeof message.params.sessionId === "string" ? message.params.sessionId : void 0;
       if (id7 && this.loadSuppressions.has(id7)) {
         if (message.kind === "request") {
           void (message.method === "session/request_permission" ? this.respond(message.id, { outcome: { outcome: "cancelled" } }) : this.respondError(message.id, -32600, `${this.label} session is not loaded.`)).catch(() => void 0);
@@ -100261,9 +100386,9 @@ var ClaudeAcpClient = class extends CursorAcpClient {
         client.call("dsh/sessionCommands", { sessionId }).catch(() => void 0)
       ]);
       signal?.throwIfAborted();
-      const models = isRecord19(modelsRaw) ? modelsRaw : void 0;
-      const modes = isRecord19(modesRaw) && Array.isArray(modesRaw.availableModes) ? modesRaw : void 0;
-      const commands = isRecord19(commandsRaw) && Array.isArray(commandsRaw.commands) && commandsRaw.commands.length > 0 ? commandsRaw.commands : void 0;
+      const models = isRecord20(modelsRaw) ? modelsRaw : void 0;
+      const modes = isRecord20(modesRaw) && Array.isArray(modesRaw.availableModes) ? modesRaw : void 0;
+      const commands = isRecord20(commandsRaw) && Array.isArray(commandsRaw.commands) && commandsRaw.commands.length > 0 ? commandsRaw.commands : void 0;
       if (models !== void 0 || modes !== void 0 || commands !== void 0) {
         this.historyMetadata.delete(sessionId);
         this.historyMetadata.set(sessionId, {
@@ -100300,7 +100425,7 @@ var ClaudeAcpClient = class extends CursorAcpClient {
     this.live.clear();
   }
 };
-function isRecord19(value) {
+function isRecord20(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -101647,7 +101772,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
   busy = /* @__PURE__ */ new Set();
   async call(method, params, timeoutMs) {
     if (!this.ready) throw new OpencodeAcpError("OPENCODE_UNAVAILABLE", "OpenCode ACP is not ready.");
-    const p = isRecord20(params) ? params : {};
+    const p = isRecord21(params) ? params : {};
     const id7 = typeof p.sessionId === "string" ? p.sessionId : void 0;
     if (id7 && this.archivingSessions.has(id7)) throw new OpencodeAcpError("ACP_SESSION_BUSY", "The OpenCode session is being archived.");
     if (id7 && this.archivedSessions.has(id7) && ["session/load", "session/prompt", "dsh/selectModel"].includes(method)) throw new OpencodeAcpError("ACP_SESSION_ARCHIVED", "This OpenCode session is archived.");
@@ -101717,11 +101842,11 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
     }
     const result = await this.request(method, params, budget);
     const nativeApi = this.nativeApi;
-    if (method === "session/list" && nativeApi && isRecord20(result) && Array.isArray(result.sessions)) {
+    if (method === "session/list" && nativeApi && isRecord21(result) && Array.isArray(result.sessions)) {
       const rawItems = result.sessions;
       const items = rawItems.length > MAX_OPENCODE_SESSION_LIST ? [...rawItems].sort((a, b) => {
-        const ta = isRecord20(a) && typeof a.updatedAt === "string" ? Date.parse(a.updatedAt) || 0 : 0;
-        const tb = isRecord20(b) && typeof b.updatedAt === "string" ? Date.parse(b.updatedAt) || 0 : 0;
+        const ta = isRecord21(a) && typeof a.updatedAt === "string" ? Date.parse(a.updatedAt) || 0 : 0;
+        const tb = isRecord21(b) && typeof b.updatedAt === "string" ? Date.parse(b.updatedAt) || 0 : 0;
         return tb - ta;
       }).slice(0, MAX_OPENCODE_SESSION_LIST) : rawItems;
       const realpathCache = /* @__PURE__ */ new Map();
@@ -101740,7 +101865,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
           const index = next++;
           if (index >= items.length) return;
           const item = items[index];
-          if (!isRecord20(item) || typeof item.sessionId !== "string" || typeof item.cwd !== "string") continue;
+          if (!isRecord21(item) || typeof item.sessionId !== "string" || typeof item.cwd !== "string") continue;
           let cwd2;
           try {
             cwd2 = await resolveCwd(item.cwd);
@@ -101766,7 +101891,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
   }
   async loadSession(method, params, budget, sessionId) {
     const result = await this.request(method, params, budget);
-    const returnedId = isRecord20(result) && typeof result.sessionId === "string" ? result.sessionId : void 0;
+    const returnedId = isRecord21(result) && typeof result.sessionId === "string" ? result.sessionId : void 0;
     const id7 = sessionId ?? returnedId;
     if (!this.ready || !id7 || sessionId && returnedId && returnedId !== sessionId) {
       throw new OpencodeAcpError("ACP_INVALID_SESSION", "OpenCode returned an invalid session.");
@@ -101959,7 +102084,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
       this.handleProcessFailure("OPENCODE_INVALID_RESPONSE", new Error("OpenCode ACP emitted invalid JSON."));
       return;
     }
-    if (!isRecord20(value)) {
+    if (!isRecord21(value)) {
       this.handleProcessFailure("OPENCODE_INVALID_RESPONSE", new Error("OpenCode ACP emitted an invalid message."));
       return;
     }
@@ -101981,13 +102106,13 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
     if (typeof value.method !== "string" || value.method.length === 0 || value.method.length > 160) return;
     const params = value.params ?? {};
     const inbound = value.method !== "session/update" && (typeof value.id === "string" || typeof value.id === "number") ? { kind: "request", id: value.id, method: value.method, params } : { kind: "notification", method: value.method, params };
-    if (inbound.kind === "request" && isRecord20(params) && typeof params.sessionId === "string" && this.loads.has(params.sessionId)) {
+    if (inbound.kind === "request" && isRecord21(params) && typeof params.sessionId === "string" && this.loads.has(params.sessionId)) {
       void this.respondError(inbound.id, -32600, "OpenCode session is not loaded.").catch(() => void 0);
       return;
     }
-    if (inbound.kind === "notification" && inbound.method === "session/update" && isRecord20(params) && typeof params.sessionId === "string") {
+    if (inbound.kind === "notification" && inbound.method === "session/update" && isRecord21(params) && typeof params.sessionId === "string") {
       this.models.get(params.sessionId)?.update(params.update);
-      if (isRecord20(params.update) && params.update.sessionUpdate === "available_commands_update") {
+      if (isRecord21(params.update) && params.update.sessionUpdate === "available_commands_update") {
         this.sessionCommands.set(params.sessionId, parseAvailableCommands(params.update));
       }
       if (this.loads.has(params.sessionId) && !this.options.historyReader) return;
@@ -102024,7 +102149,7 @@ var OpencodeAcpClient = class _OpencodeAcpClient {
   }
 };
 function safeUpstreamError3(value) {
-  if (!isRecord20(value) || typeof value.message !== "string") return "OpenCode ACP rejected the request.";
+  if (!isRecord21(value) || typeof value.message !== "string") return "OpenCode ACP rejected the request.";
   const message = value.message.toLowerCase();
   if (message.includes("auth") || message.includes("login") || message.includes("api key")) {
     return "OpenCode ACP authentication failed.";
@@ -102032,7 +102157,7 @@ function safeUpstreamError3(value) {
   if (message.includes("not initialized")) return "OpenCode ACP is not initialized.";
   return "OpenCode ACP rejected the request.";
 }
-function isRecord20(value) {
+function isRecord21(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -102395,15 +102520,15 @@ async function querySqliteJson(dbPath, sql, params = []) {
   } catch {
   }
   try {
-    const { execFile: execFile5 } = await import("node:child_process");
-    const { promisify: promisify7 } = await import("node:util");
-    const execFileAsync3 = promisify7(execFile5);
+    const { execFile: execFile6 } = await import("node:child_process");
+    const { promisify: promisify8 } = await import("node:util");
+    const execFileAsync4 = promisify8(execFile6);
     let formattedSql = sql;
     for (const p of params) {
       const val = typeof p === "number" ? String(p) : `'${String(p).replace(/'/g, "''")}'`;
       formattedSql = formattedSql.replace("?", val);
     }
-    const { stdout } = await execFileAsync3("sqlite3", [dbPath, "-json", formattedSql], { windowsHide: true });
+    const { stdout } = await execFileAsync4("sqlite3", [dbPath, "-json", formattedSql], { windowsHide: true });
     return JSON.parse(stdout || "[]");
   } catch {
     return [];
@@ -102998,15 +103123,15 @@ function decodeCanonicalBase642(value) {
   }
   return decoded;
 }
-function isRecord21(value) {
+function isRecord22(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function safeErrorCode3(error62) {
-  if (isRecord21(error62) && typeof error62.code === "string") return error62.code;
+  if (isRecord22(error62) && typeof error62.code === "string") return error62.code;
   return "UNKNOWN";
 }
 function safeMethod2(input4) {
-  return isRecord21(input4) && typeof input4.method === "string" ? input4.method : "invalid";
+  return isRecord22(input4) && typeof input4.method === "string" ? input4.method : "invalid";
 }
 function concatChunks2(chunks, totalBytes) {
   const output2 = new Uint8Array(totalBytes);
@@ -103208,12 +103333,12 @@ var AcpWorkspaceStore = class _AcpWorkspaceStore {
   }
 };
 function normalizeStore(value) {
-  if (!isRecord22(value) || value.version !== 1) return createEmptyStore();
+  if (!isRecord23(value) || value.version !== 1) return createEmptyStore();
   const backends = emptyBackends();
-  if (isRecord22(value.backends)) {
+  if (isRecord23(value.backends)) {
     for (const [key, raw] of Object.entries(value.backends)) {
-      if (PROTOTYPE_KEYS.has(key) || !isRecord22(raw)) continue;
-      const workspaces = Array.isArray(raw.workspaces) ? raw.workspaces.flatMap((item) => isRecord22(item) && typeof item.path === "string" && item.path.length > 0 ? [{
+      if (PROTOTYPE_KEYS.has(key) || !isRecord23(raw)) continue;
+      const workspaces = Array.isArray(raw.workspaces) ? raw.workspaces.flatMap((item) => isRecord23(item) && typeof item.path === "string" && item.path.length > 0 ? [{
         path: item.path,
         ...typeof item.title === "string" && item.title.trim() ? { title: item.title.trim() } : {},
         updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (/* @__PURE__ */ new Date(0)).toISOString()
@@ -103224,7 +103349,7 @@ function normalizeStore(value) {
     }
   }
   const sessionPermissions = emptyPermissions();
-  if (isRecord22(value.sessionPermissions)) {
+  if (isRecord23(value.sessionPermissions)) {
     for (const [key, preset] of Object.entries(value.sessionPermissions)) {
       if (!PROTOTYPE_KEYS.has(key) && (preset === "workspace-write" || preset === "danger-full-access")) {
         sessionPermissions[key] = preset;
@@ -103233,7 +103358,7 @@ function normalizeStore(value) {
   }
   return { version: 1, backends, sessionPermissions };
 }
-function isRecord22(value) {
+function isRecord23(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -103796,7 +103921,7 @@ var AcpRemoteGateway = class {
       if (selected !== void 0 && selected !== requested) throw new RpcError("INVALID_MESSAGE", "The ACP session backend does not match.");
       const client = this.requireAcp(requested);
       const supportsImages = requested === "antigravity" || requested === "hermes" || client.capabilities?.()?.promptCapabilities?.image === true;
-      if (Array.isArray(call.params.prompt) && call.params.prompt.some((part) => isRecord23(part) && part.type === "image") && !supportsImages) {
+      if (Array.isArray(call.params.prompt) && call.params.prompt.some((part) => isRecord24(part) && part.type === "image") && !supportsImages) {
         throw new RpcError("METHOD_NOT_ALLOWED", "This ACP backend does not accept image prompts.");
       }
       if (sessionId !== void 0 && !this.sessionPermissions.has(sessionId)) {
@@ -104027,8 +104152,8 @@ var AcpRemoteGateway = class {
       const result = await task.client.call("session/prompt", params);
       await this.inboundChain;
       if (!current()) return;
-      const stopReason = isRecord23(result) && typeof result.stopReason === "string" ? result.stopReason : "end_turn";
-      const usage = isRecord23(result) ? sanitizeUsage(result.usage) : void 0;
+      const stopReason = isRecord24(result) && typeof result.stopReason === "string" ? result.stopReason : "end_turn";
+      const usage = isRecord24(result) ? sanitizeUsage(result.usage) : void 0;
       const catchUp = takeTurnCatchUp(this.turnCatchUp, sessionId);
       this.logger.info("ACP prompt finished", {
         sessionId: shortSessionId(sessionId),
@@ -104736,8 +104861,8 @@ var AcpRemoteGateway = class {
   recordTurnCatchUp(sessionId, frame) {
     const list2 = this.turnCatchUp.get(sessionId);
     if (list2 === void 0 || frame.method !== "session/update") return;
-    const params = isRecord23(frame.params) ? frame.params : void 0;
-    const update = params !== void 0 && isRecord23(params.update) ? params.update : params;
+    const params = isRecord24(frame.params) ? frame.params : void 0;
+    const update = params !== void 0 && isRecord24(params.update) ? params.update : params;
     const kind = update !== void 0 && typeof update.sessionUpdate === "string" ? update.sessionUpdate : void 0;
     if (kind === void 0 || !CATCH_UP_SESSION_UPDATES.has(kind)) return;
     list2.push({ method: frame.method, params: frame.params });
@@ -104959,11 +105084,11 @@ var AcpRemoteGateway = class {
     const client = this.backendInstances.get(backend)?.client;
     if (!client) return;
     const modes = await client.call("dsh/sessionModes", { sessionId }).catch(() => void 0);
-    if (!isRecord23(modes) || !Array.isArray(modes.availableModes)) return;
+    if (!isRecord24(modes) || !Array.isArray(modes.availableModes)) return;
     const current = typeof modes.currentModeId === "string" ? modes.currentModeId : void 0;
     const permissionModes = /* @__PURE__ */ new Set(["default", "accept-edits", "auto", "acceptEdits", "bypassPermissions", "dontAsk", "yolo", "full-auto"]);
     if (current && !permissionModes.has(current)) return;
-    const ids = modes.availableModes.filter((item) => isRecord23(item) && typeof item.id === "string").map((item) => item.id);
+    const ids = modes.availableModes.filter((item) => isRecord24(item) && typeof item.id === "string").map((item) => item.id);
     const target3 = preset === "danger-full-access" ? ["auto", "bypassPermissions", "yolo", "full-auto", "accept-edits", "acceptEdits"].find((id7) => ids.includes(id7)) : ids.find((id7) => id7 === "default");
     if (target3 && target3 !== current) {
       await client.call("session/set_mode", { sessionId, modeId: target3 });
@@ -105048,10 +105173,10 @@ var AcpRemoteGateway = class {
         throw error62;
       }
       assertCurrent();
-      if (backend === "cursor" && isRecord23(result) && result.sessions === void 0 && Object.keys(result).length === 0) {
+      if (backend === "cursor" && isRecord24(result) && result.sessions === void 0 && Object.keys(result).length === 0) {
         return items;
       }
-      if (!isRecord23(result) || !Array.isArray(result.sessions) || result.nextCursor != null && (typeof result.nextCursor !== "string" || result.nextCursor.length === 0)) {
+      if (!isRecord24(result) || !Array.isArray(result.sessions) || result.nextCursor != null && (typeof result.nextCursor !== "string" || result.nextCursor.length === 0)) {
         throw new RpcError("INVALID_MESSAGE", "The ACP session catalog response is invalid.");
       }
       if (process.platform === "win32" && backend === "antigravity" && queryCwd !== void 0 && page === 0 && result.sessions.length === 0 && result.nextCursor == null) {
@@ -105060,7 +105185,7 @@ var AcpRemoteGateway = class {
         continue;
       }
       for (const item of result.sessions) {
-        if (!isRecord23(item) || typeof item.sessionId !== "string" || typeof item.cwd !== "string") continue;
+        if (!isRecord24(item) || typeof item.sessionId !== "string" || typeof item.cwd !== "string") continue;
         const canonical = await this.resolveCatalogCwd(item.cwd, assertCurrent);
         if (!canonical || cwd2 && canonical !== cwd2) continue;
         if (this.sessionBackends.has(item.sessionId) && this.sessionBackends.get(item.sessionId) !== backend) continue;
@@ -105157,24 +105282,24 @@ var AcpRemoteGateway = class {
   }
 };
 function parseCallEnvelope2(input4) {
-  if (!isRecord23(input4) || typeof input4.method !== "string") {
+  if (!isRecord24(input4) || typeof input4.method !== "string") {
     throw new RpcError("INVALID_MESSAGE", "The Cursor call envelope is invalid.");
   }
   return { method: input4.method, params: input4.params ?? {} };
 }
 function parseRespondEnvelope(input4) {
-  if (!isRecord23(input4) || typeof input4.requestHandle !== "string" || input4.requestHandle.length === 0 || Object.keys(input4).some((key) => !["requestHandle", "decision", "result"].includes(key)) || typeof input4.decision !== "string" || !["allow-once", "reject-once", "cancel"].includes(input4.decision)) {
+  if (!isRecord24(input4) || typeof input4.requestHandle !== "string" || input4.requestHandle.length === 0 || Object.keys(input4).some((key) => !["requestHandle", "decision", "result"].includes(key)) || typeof input4.decision !== "string" || !["allow-once", "reject-once", "cancel"].includes(input4.decision)) {
     throw new RpcError("INVALID_MESSAGE", "The ACP respond envelope is invalid.");
   }
   return input4;
 }
 function permissionOptions(params) {
-  if (!isRecord23(params) || !Array.isArray(params.options) || params.options.length === 0) {
+  if (!isRecord24(params) || !Array.isArray(params.options) || params.options.length === 0) {
     throw new Error("Missing permission options");
   }
   const ids = /* @__PURE__ */ new Set();
   const options = params.options.map((option) => {
-    if (!isRecord23(option) || typeof option.optionId !== "string" || !option.optionId || typeof option.kind !== "string" || !["allow_once", "allow_always", "reject_once", "reject_always"].includes(option.kind) || ids.has(option.optionId)) throw new Error("Invalid permission option");
+    if (!isRecord24(option) || typeof option.optionId !== "string" || !option.optionId || typeof option.kind !== "string" || !["allow_once", "allow_always", "reject_once", "reject_always"].includes(option.kind) || ids.has(option.optionId)) throw new Error("Invalid permission option");
     ids.add(option.optionId);
     return { kind: option.kind, optionId: option.optionId };
   });
@@ -105195,8 +105320,8 @@ function mapPermissionDecision(params, pending) {
   }
   if (pending.method === "cursor/ask_question" && params.decision === "allow-once") {
     if (params.result === void 0) return { outcome: { outcome: "answered" } };
-    if (!isRecord23(params.result)) throw invalid();
-    const outcomeRecord = isRecord23(params.result.outcome) ? params.result.outcome : params.result;
+    if (!isRecord24(params.result)) throw invalid();
+    const outcomeRecord = isRecord24(params.result.outcome) ? params.result.outcome : params.result;
     const outcomeKind = typeof outcomeRecord.outcome === "string" ? outcomeRecord.outcome : "answered";
     if (outcomeKind !== "answered" && outcomeKind !== "selected") throw invalid();
     const allowedKeys = /* @__PURE__ */ new Set(["outcome", "answers", "selectedOptionIds", "response"]);
@@ -105212,21 +105337,21 @@ function mapPermissionDecision(params, pending) {
   }
   const outcome = pending.method === "cursor/create_plan" ? params.decision === "allow-once" ? "accepted" : params.decision === "cancel" ? "cancelled" : "rejected" : "cancelled";
   if (params.result !== void 0) {
-    if (!isRecord23(params.result) || Object.keys(params.result).length !== 1 || !isRecord23(params.result.outcome) || Object.keys(params.result.outcome).length !== 1 || params.result.outcome.outcome !== outcome) throw invalid();
+    if (!isRecord24(params.result) || Object.keys(params.result).length !== 1 || !isRecord24(params.result.outcome) || Object.keys(params.result.outcome).length !== 1 || params.result.outcome.outcome !== outcome) throw invalid();
   }
   return { outcome: { outcome } };
 }
 function readSessionId(value) {
-  if (!isRecord23(value)) return void 0;
+  if (!isRecord24(value)) return void 0;
   return typeof value.sessionId === "string" ? value.sessionId : void 0;
 }
 function readNestedSessionId(value) {
-  if (!isRecord23(value)) return void 0;
-  if (isRecord23(value.update) && typeof value.update.sessionId === "string") return value.update.sessionId;
+  if (!isRecord24(value)) return void 0;
+  if (isRecord24(value.update) && typeof value.update.sessionId === "string") return value.update.sessionId;
   return void 0;
 }
 function sanitizeSessionResult(value) {
-  if (!isRecord23(value)) return value;
+  if (!isRecord24(value)) return value;
   const next = {};
   for (const [key, entry] of Object.entries(value)) {
     if (key === "sessionId" || key === "stopReason" || key === "mode" || key === "currentModeId" || key === "modes") {
@@ -105236,7 +105361,7 @@ function sanitizeSessionResult(value) {
   return Object.keys(next).length > 0 ? next : value;
 }
 function sanitizeUsage(value) {
-  if (!isRecord23(value)) return void 0;
+  if (!isRecord24(value)) return void 0;
   const fields = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "cachedReadTokens", "cachedWriteTokens", "reasoningTokens", "thoughtTokens", "totalTokens"];
   const normalized = {};
   for (const field of fields) {
@@ -105374,14 +105499,14 @@ function isResponseTooLarge(error62) {
   let current = error62;
   while (current !== void 0 && current !== null && !seen.has(current) && seen.size < 8) {
     seen.add(current);
-    if (isRecord23(current) && typeof current.code === "string" && OVERSIZED_FRAME_ERROR_CODES.has(current.code)) {
+    if (isRecord24(current) && typeof current.code === "string" && OVERSIZED_FRAME_ERROR_CODES.has(current.code)) {
       return true;
     }
-    const message = current instanceof Error ? current.message : isRecord23(current) && typeof current.message === "string" ? current.message : void 0;
+    const message = current instanceof Error ? current.message : isRecord24(current) && typeof current.message === "string" ? current.message : void 0;
     if (message !== void 0 && /secure message exceeds the reassembly limit|exceeds the secure channel limit/i.test(message)) {
       return true;
     }
-    current = current instanceof Error ? current.cause : isRecord23(current) ? current.cause : void 0;
+    current = current instanceof Error ? current.cause : isRecord24(current) ? current.cause : void 0;
   }
   return false;
 }
@@ -105393,20 +105518,20 @@ function takeTurnCatchUp(turnCatchUp, sessionId) {
   turnCatchUp.delete(sessionId);
   return list2;
 }
-function isRecord23(value) {
+function isRecord24(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function buildAcpApprovalFrameParams(rawParams, requestHandle, sessionId, method) {
   return {
-    ...isRecord23(rawParams) ? rawParams : {},
+    ...isRecord24(rawParams) ? rawParams : {},
     requestHandle,
     sessionId,
     upstreamMethod: method
   };
 }
 function acpApprovalSummary(method, params) {
-  if (isRecord23(params)) {
-    if (isRecord23(params.toolCall)) {
+  if (isRecord24(params)) {
+    if (isRecord24(params.toolCall)) {
       const title = typeof params.toolCall.title === "string" && params.toolCall.title.trim().length > 0 ? params.toolCall.title.trim() : void 0;
       if (title !== void 0) return title;
     }
@@ -105767,6 +105892,7 @@ async function installOrConfigureBackend(backendId2, options = {}) {
 }
 
 // packages/plugin/src/control-runtime.ts
+var execFileAsync3 = promisify5(execFile4);
 var PluginControlRuntime = class {
   constructor(config2, identityDirectory, settings, client, host, switchServer, updates, useDefaultStorage = false, logStore) {
     this.config = config2;
@@ -105834,6 +105960,8 @@ var PluginControlRuntime = class {
       }
       if (endpoint === "settings.development.set") return ok3(await this.setDevelopment(payload));
       if (endpoint === "settings.appearance.set") return ok3(await this.setAppearance(payload));
+      if (endpoint === "settings.lite.set") return ok3(await this.setLite(payload));
+      if (endpoint === "settings.forceRelay.set") return ok3(await this.setForceRelay(payload));
       if (endpoint === "settings.get") return ok3(await this.settingsView());
       if (endpoint === "settings.configure") return ok3(await this.configure(payload));
       if (endpoint === "settings.server.set") return ok3(await this.setServer(payload));
@@ -106075,6 +106203,38 @@ var PluginControlRuntime = class {
     }
     return { ...await this.settingsView(), applies: this.startupFailure === void 0 ? "live" : "restart" };
   }
+  async setLite(payload) {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const enabled3 = record9(payload).enabled;
+    if (typeof enabled3 !== "boolean") {
+      throw new ClientModeError("INVALID_MESSAGE", "The lite mode switch must be a boolean.");
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()));
+    await this.settings.replace({ ...current, liteMode: enabled3 });
+    setLiteModeEnabled(enabled3);
+    return { ...await this.settingsView(), applies: "live" };
+  }
+  /**
+   * Relay-only preference. Applies to new connections; the Host re-dials the
+   * Server so its advertised capabilities (and the Server-side negotiation)
+   * drop LAN/P2P/TURN right away.
+   */
+  async setForceRelay(payload) {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const enabled3 = record9(payload).enabled;
+    if (typeof enabled3 !== "boolean") {
+      throw new ClientModeError("INVALID_MESSAGE", "The relay preference must be a boolean.");
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()));
+    await this.settings.replace({ ...current, forceRelay: enabled3 });
+    setForceRelayEnabled(enabled3);
+    this.host?.reconnectHost();
+    return { ...await this.settingsView(), applies: "live" };
+  }
   async setRole(payload) {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
@@ -106162,27 +106322,27 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const enabled = record9(payload).enabled;
-    if (typeof enabled !== "boolean") {
+    const enabled3 = record9(payload).enabled;
+    if (typeof enabled3 !== "boolean") {
       throw new ClientModeError("INVALID_MESSAGE", "Codex Remote enabled must be a boolean.");
     }
-    return this.setAcp({ backend: "codex", enabled });
+    return this.setAcp({ backend: "codex", enabled: enabled3 });
   }
   async setCursor(payload) {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const enabled = record9(payload).enabled;
-    if (typeof enabled !== "boolean") {
+    const enabled3 = record9(payload).enabled;
+    if (typeof enabled3 !== "boolean") {
       throw new ClientModeError("INVALID_MESSAGE", "Cursor Remote enabled must be a boolean.");
     }
     const current = editableConfig(resolveConfig(this.settings.get()));
     const next = resolveConfig({
       ...current,
-      cursor: { ...current.cursor, enabled },
+      cursor: { ...current.cursor, enabled: enabled3 },
       acp: {
-        enabled: enabled || current.acp?.enabled === true,
-        backends: current.acp?.backends?.map((item) => item.id === "cursor" ? { ...item, enabled } : item)
+        enabled: enabled3 || current.acp?.enabled === true,
+        backends: current.acp?.backends?.map((item) => item.id === "cursor" ? { ...item, enabled: enabled3 } : item)
       }
     });
     await this.settings.replace(editableConfig(next));
@@ -106193,16 +106353,16 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     const value = record9(payload);
     const backend = value.backend;
-    const enabled = value.enabled;
-    if (typeof backend !== "string" || typeof enabled !== "boolean") throw new ClientModeError("INVALID_MESSAGE", "ACP backend and enabled are required.");
+    const enabled3 = value.enabled;
+    if (typeof backend !== "string" || typeof enabled3 !== "boolean") throw new ClientModeError("INVALID_MESSAGE", "ACP backend and enabled are required.");
     const current = resolveConfig(this.settings.get());
     if (!current.acp?.backends.some((item) => item.id === backend)) throw new ClientModeError("INVALID_MESSAGE", "Unknown ACP backend.");
-    const backends = current.acp.backends.map((item) => item.id === backend ? { ...item, enabled } : item);
+    const backends = current.acp.backends.map((item) => item.id === backend ? { ...item, enabled: enabled3 } : item);
     await this.settings.replace({
       ...editableConfig(current),
-      ...backend === "cursor" ? { cursor: { ...current.cursor, enabled } } : {},
-      ...backend === "codex" ? { codex: { ...current.codex, enabled } } : {},
-      acp: { enabled: enabled || current.acp.enabled, backends }
+      ...backend === "cursor" ? { cursor: { ...current.cursor, enabled: enabled3 } } : {},
+      ...backend === "codex" ? { codex: { ...current.codex, enabled: enabled3 } } : {},
+      acp: { enabled: enabled3 || current.acp.enabled, backends }
     });
     await this.host?.setAgentBackends?.(resolveConfig(this.settings.get()));
     return { ...await this.settingsView(), applies: "live" };
@@ -106222,9 +106382,9 @@ var PluginControlRuntime = class {
     }
     const current = resolveConfig(this.settings.get());
     if (current.acp?.backends.some((item) => item.id === id7)) throw new ClientModeError("INVALID_MESSAGE", "ACP backend already exists.");
-    const enabled = value.enabled === true;
-    const backends = [...current.acp?.backends ?? [], { id: id7, command, args: value.args, enabled }];
-    const next = resolveConfig({ ...editableConfig(current), acp: { enabled: enabled || (current.acp?.enabled ?? true), backends } });
+    const enabled3 = value.enabled === true;
+    const backends = [...current.acp?.backends ?? [], { id: id7, command, args: value.args, enabled: enabled3 }];
+    const next = resolveConfig({ ...editableConfig(current), acp: { enabled: enabled3 || (current.acp?.enabled ?? true), backends } });
     await this.settings.replace(editableConfig(next));
     await this.host?.setAgentBackends?.(resolveConfig(this.settings.get()));
     return { ...await this.settingsView(), applies: "live" };
@@ -106468,6 +106628,7 @@ function editableConfig(config2) {
     forceRelay: config2.forceRelay,
     detachedApprovalGraceSec: config2.detachedApprovalGraceSec,
     logLevel: config2.logLevel,
+    liteMode: config2.liteMode,
     reconnect: config2.reconnect.enabled ? {
       initialDelayMs: config2.reconnect.initialDelayMs,
       maxDelayMs: config2.reconnect.maxDelayMs,
@@ -106484,18 +106645,18 @@ function editableConfig(config2) {
     ...config2.acp === void 0 ? {} : { acp: { enabled: config2.acp.enabled, backends: config2.acp.backends } }
   };
 }
-function isRecord24(value) {
+function isRecord25(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function record9(value) {
-  if (!isRecord24(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
+  if (!isRecord25(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
   return value;
 }
 function ok3(value) {
   return { ok: true, value };
 }
 function withUpdate(result, update) {
-  if (update === void 0 || !result.ok || !isRecord24(result.value)) return result;
+  if (update === void 0 || !result.ok || !isRecord25(result.value)) return result;
   return ok3({ ...result.value, update });
 }
 function fail5(error62) {
@@ -108139,10 +108300,10 @@ async function waitForCheck(connector, signal) {
 // packages/plugin/src/session-transfer.ts
 import { createHash as createHash7, randomUUID as randomUUID18 } from "node:crypto";
 import { stat as stat7 } from "node:fs/promises";
-import { promisify as promisify5 } from "node:util";
+import { promisify as promisify6 } from "node:util";
 import { gunzip, gzip } from "node:zlib";
-var pack = promisify5(gzip);
-var unpack = promisify5(gunzip);
+var pack = promisify6(gzip);
+var unpack = promisify6(gunzip);
 var transferVersion = 1;
 var maxBytes = 8 * 1024 * 1024;
 var chunkBytes = 256 * 1024;
@@ -111080,9 +111241,9 @@ function diagnosticReason2(error62) {
   return message.replace(/\s+/g, " ").slice(0, 160) || "Unknown peer connection failure.";
 }
 function extractEndpoint(message) {
-  if (!isRecord25(message) || !isRecord25(message.payload)) return void 0;
+  if (!isRecord26(message) || !isRecord26(message.payload)) return void 0;
   const payload = message.payload;
-  if (isRecord25(payload.params)) {
+  if (isRecord26(payload.params)) {
     if (typeof payload.params.endpoint === "string") return payload.params.endpoint;
     if (typeof payload.params.method === "string") return payload.params.method;
   }
@@ -111090,7 +111251,7 @@ function extractEndpoint(message) {
   if (typeof payload.method === "string") return payload.method;
   return void 0;
 }
-function isRecord25(value) {
+function isRecord26(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function shortId2(value) {
@@ -111841,11 +112002,11 @@ function createNodeWebSocket(url2) {
 }
 
 // packages/plugin/src/ipv6-on-link.ts
-import { execFile as execFile4 } from "node:child_process";
+import { execFile as execFile5 } from "node:child_process";
 import { isIP as isIP4 } from "node:net";
 import { networkInterfaces as networkInterfaces5 } from "node:os";
-import { promisify as promisify6 } from "node:util";
-var run = promisify6(execFile4);
+import { promisify as promisify7 } from "node:util";
+var run = promisify7(execFile5);
 var reachableNeighborStates = /* @__PURE__ */ new Set(["REACHABLE", "STALE", "DELAY", "PROBE"]);
 async function isIpv6OnLink(local, remote) {
   if (process.platform !== "linux" || isIP4(local) !== 6 || isIP4(remote) !== 6) return false;
@@ -111877,6 +112038,9 @@ function resolveWebRtcNegotiateTimeoutMs(hint) {
     return DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS;
   }
   return Math.min(MAX_WEBRTC_NEGOTIATE_TIMEOUT_MS, Math.max(MIN_WEBRTC_NEGOTIATE_TIMEOUT_MS, hint));
+}
+function advertisedTransportCapabilities(forceRelay, rtcAvailable) {
+  return forceRelay || !rtcAvailable ? ["transport.relay", "transport.relay.attach"] : ["transport.lan", "transport.p2p", "transport.turn", "transport.relay", "transport.relay.attach"];
 }
 var HostServerConnection = class {
   constructor(config2, identity3, identities, api, connections, logger2, createWebSocket = (url2) => createNodeWebSocket(url2), rtcFactoryProvider, hostCapabilities = () => [], harnessVersion, onOnline) {
@@ -112044,7 +112208,13 @@ var HostServerConnection = class {
   async connectOnce() {
     const credentials = await this.api.authenticate(this.identity);
     if (this.stopped) return;
-    const offeredCapabilities = this.rtcFactoryProvider === void 0 || this.config.forceRelay ? [RELAY_RESUME_CAPABILITY, ATTENTION_SIGNAL_CAPABILITY, "transport.relay", "transport.relay.attach", ...this.hostCapabilities()] : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY, ATTENTION_SIGNAL_CAPABILITY, "transport.lan", "transport.p2p", "transport.turn", "transport.relay", "transport.relay.attach", ...this.hostCapabilities()];
+    const forceRelay = isForceRelayEnabled() || this.config.forceRelay;
+    const offeredCapabilities = [
+      ...forceRelay || this.rtcFactoryProvider === void 0 ? [RELAY_RESUME_CAPABILITY] : [WEBRTC_RESUME_CAPABILITY, RELAY_RESUME_CAPABILITY],
+      ATTENTION_SIGNAL_CAPABILITY,
+      ...advertisedTransportCapabilities(forceRelay, this.rtcFactoryProvider !== void 0),
+      ...this.hostCapabilities()
+    ];
     const recoveryTickets = [...this.tunnels.values()].flatMap((tunnel) => tunnel.lease?.recoveryTicket() ?? []).slice(0, 64);
     const socket = this.createWebSocket(websocketUrl2(this.api.baseUrl));
     this.socket = socket;
@@ -112667,7 +112837,7 @@ var HostServerConnection = class {
       this.logger.warn("duplicate webrtc offer ignored", { connectionId: shortId3(tunnel.connectionId) });
       return;
     }
-    if (this.config.forceRelay) {
+    if (this.config.forceRelay || isForceRelayEnabled()) {
       this.logger.warn("webrtc offer ignored: forceRelay is enabled", { connectionId: shortId3(tunnel.connectionId) });
       return;
     }
@@ -113883,7 +114053,7 @@ var HarnessRemoteBridge = class {
     if (params.endpoint === "dsBot/feed") throw new RpcError("METHOD_NOT_ALLOWED", "Use a stream for this DS Bot feed endpoint.");
     if (["settings/update", "settings/replace", "settings/mutate"].includes(params.endpoint)) {
       const args = requestArgs(params.payload);
-      if (args.ns === "ds-harness-remote" || args.ns === "dsh-remote") {
+      if (args.ns === "ds-harness-remote-fast" || args.ns === "ds-harness-remote" || args.ns === "dsh-remote") {
         throw new RpcError("PERMISSION_DENIED", "Remote access settings can only be changed locally on the Host.");
       }
     }
@@ -113942,7 +114112,7 @@ var HarnessRemoteBridge = class {
       if (params.endpoint === "$events/result" && nativeResult.ok && this.forwardedEventsObserver?.onEventResult !== void 0) {
         const args = requestArgs(params.payload);
         const eventId = typeof args.eventId === "string" && args.eventId.length > 0 ? args.eventId : void 0;
-        const outcomeKind = isRecord26(args.outcome) && typeof args.outcome.kind === "string" ? args.outcome.kind : void 0;
+        const outcomeKind = isRecord27(args.outcome) && typeof args.outcome.kind === "string" ? args.outcome.kind : void 0;
         if (eventId !== void 0) {
           try {
             this.forwardedEventsObserver.onEventResult(eventId, outcomeKind);
@@ -113950,12 +114120,12 @@ var HarnessRemoteBridge = class {
           }
         }
       }
-      if (params.endpoint === "dsBot/call" && nativeResult.ok && isRecord26(nativeResult.value) && this.forwardedEventsObserver?.onDsBotCall !== void 0) {
+      if (params.endpoint === "dsBot/call" && nativeResult.ok && isRecord27(nativeResult.value) && this.forwardedEventsObserver?.onDsBotCall !== void 0) {
         const root2 = record11(params.payload);
-        const args = isRecord26(root2.args) ? root2.args : root2;
+        const args = isRecord27(root2.args) ? root2.args : root2;
         const botEndpoint = typeof args.endpoint === "string" && args.endpoint.length > 0 ? args.endpoint : void 0;
         if (botEndpoint !== void 0) {
-          const botPayload = isRecord26(args.payload) ? args.payload : null;
+          const botPayload = isRecord27(args.payload) ? args.payload : null;
           try {
             this.forwardedEventsObserver.onDsBotCall({ endpoint: botEndpoint, payload: botPayload }, nativeResult.value);
           } catch {
@@ -113985,11 +114155,13 @@ var HarnessRemoteBridge = class {
         return result;
       }
       const reason = workspaceFileFailureReason(error62);
+      const requested = workspaceReadRequestPath(params.payload);
       this.logger?.warn("harness remote call failed", {
         endpoint: params.endpoint,
         durationMs: Math.round(performance.now() - startedAt),
         code: this.gateway.failure(error62).code,
-        ...reason === void 0 ? {} : { reason }
+        ...reason === void 0 ? {} : { reason },
+        ...requested === void 0 ? {} : { requested }
       });
       throw error62;
     } finally {
@@ -114062,7 +114234,7 @@ var HarnessRemoteBridge = class {
       const record12 = await this.schedule.create(sessionId, request2, AbortSignal.timeout(6e4));
       return { ok: true, value: record12 };
     } catch (error62) {
-      const published = isRecord26(error62) && typeof error62.code === "string" ? PUBLIC_SCHEDULE_ERRORS[error62.code] : void 0;
+      const published = isRecord27(error62) && typeof error62.code === "string" ? PUBLIC_SCHEDULE_ERRORS[error62.code] : void 0;
       if (published === void 0) {
         return {
           ok: false,
@@ -114301,8 +114473,8 @@ var HarnessRemoteBridge = class {
     const args = parsed.data.args;
     const result = await this.gateway.dispatch(plugin ? "pluginManager/listPlugins" : "pluginManager/listBundles", { args: {} }, AbortSignal.timeout(6e4));
     if (!result.ok || !Array.isArray(result.value)) throw new RpcError("PERMISSION_DENIED", "Cannot verify the Host plugin inventory.");
-    const row = result.value.find((value) => isRecord26(value) && value[plugin ? "entryId" : "name"] === args[key]);
-    if (!isRecord26(row) || row.readOnlyReason !== void 0) throw new RpcError("PERMISSION_DENIED", "The Host plugin cannot be changed remotely.");
+    const row = result.value.find((value) => isRecord27(value) && value[plugin ? "entryId" : "name"] === args[key]);
+    if (!isRecord27(row) || row.readOnlyReason !== void 0) throw new RpcError("PERMISSION_DENIED", "The Host plugin cannot be changed remotely.");
     if (remoteOwnedBundleRow(row, plugin)) {
       throw new RpcError("PERMISSION_DENIED", "The Remote plugin can only be enabled or disabled locally on the Host.");
     }
@@ -114322,8 +114494,8 @@ var HarnessRemoteBridge = class {
     if (!parsed.success) throw new RpcError("INVALID_MESSAGE", "Invalid plugin update request.");
     const result = await this.gateway.dispatch("pluginManager/listBundles", { args: {} }, AbortSignal.timeout(6e4));
     if (!result.ok || !Array.isArray(result.value)) throw new RpcError("PERMISSION_DENIED", "Cannot verify the Host plugin inventory.");
-    const row = result.value.find((value) => isRecord26(value) && value.name === parsed.data.args.name);
-    if (!isRecord26(row) || row.readOnlyReason !== void 0 || row.updatable !== true) {
+    const row = result.value.find((value) => isRecord27(value) && value.name === parsed.data.args.name);
+    if (!isRecord27(row) || row.readOnlyReason !== void 0 || row.updatable !== true) {
       throw new RpcError("PERMISSION_DENIED", "The Host plugin cannot be updated remotely.");
     }
     if (remoteOwnedBundleRow(row, false)) {
@@ -114368,12 +114540,37 @@ var HarnessRemoteBridge = class {
           } catch {
           }
         }
-        const frame = {
+        let frame = {
           streamId,
           hasValue: true,
-          ...value === void 0 ? {} : { value: historyFollow && this.compactHistoryEnabled && isCompactSnapshot(value) ? compactHistory(value) : value }
+          ...value === void 0 ? {} : { value: historyFollow && (this.compactHistoryEnabled || isLiteModeEnabled()) && isCompactSnapshot(value) ? compactHistory(value) : value }
         };
-        if (encodeMessage(createEvent("harness.remote.frame", frame)).byteLength > MAX_SECURE_MESSAGE_BYTES) {
+        if (isLiteModeEnabled()) {
+          const shaped = applyLiteMode(frame);
+          if (shaped === void 0) {
+            const layer = isJsonRecord(frame.value) ? frame.value : void 0;
+            const bytes2 = layer === void 0 ? 0 : Buffer.byteLength(JSON.stringify(layer.value ?? null));
+            this.logger?.debug("fast mode dropped projection frame", {
+              streamId,
+              key: typeof layer?.key === "string" ? layer.key : "unknown",
+              bytes: bytes2
+            });
+            continue;
+          }
+          frame = shaped;
+        }
+        const encoded = encodeMessage(createEvent("harness.remote.frame", frame));
+        const bytes = encoded.byteLength;
+        if (bytes >= FRAME_DIAGNOSTIC_MIN_BYTES) {
+          const value2 = isJsonRecord(frame.value) ? frame.value : void 0;
+          this.logger?.info("outbound frame", {
+            type: typeof value2?.type === "string" ? value2.type : "unknown",
+            bytes,
+            lite: isLiteModeEnabled(),
+            transferFrames
+          });
+        }
+        if (bytes > MAX_SECURE_MESSAGE_BYTES) {
           if (!transferFrames) throw new Error("Oversized Harness Remote frame");
           await this.transferStreamFrame(frame, signal);
         } else {
@@ -114442,7 +114639,7 @@ var HarnessRemoteBridge = class {
   }
   async resolveMessageFilePayload(payload, endpoint, signal) {
     const deny = () => workspaceFileFailure("WORKSPACE_PATH_DENIED", "The message attachment is unavailable.", "outside-root");
-    if (!isRecord26(payload) || !isRecord26(payload.args)) throw deny();
+    if (!isRecord27(payload) || !isRecord27(payload.args)) throw deny();
     const args = payload.args;
     const sessionId = args.workspaceFileScopeId;
     if (typeof sessionId !== "string" || !isMessageFilePath(args.path)) throw deny();
@@ -114468,9 +114665,9 @@ var HarnessRemoteBridge = class {
       throw workspaceFileFailure("WORKSPACE_TOO_LARGE", "The requested workspace file is too large.", "too-large");
     }
     if (endpoint === "workspaceFiles/readBytes") {
-      const options = isRecord26(args.options) ? args.options : {};
+      const options = isRecord27(args.options) ? args.options : {};
       if ("baseFile" in args || "baseFile" in options) throw deny();
-      if (!isRecord26(options.range) && !isRecord26(args.range)) {
+      if (!isRecord27(options.range) && !isRecord27(args.range)) {
         if (reference.bytes > MAX_READ_BYTES2) {
           throw workspaceFileFailure("WORKSPACE_TOO_LARGE", "The requested workspace file is too large.", "too-large");
         }
@@ -114484,7 +114681,7 @@ var HarnessRemoteBridge = class {
     return { ...payload, args: { ...args, path } };
   }
   async assertNativeWorkspaceFileCall(endpoint, payload, signal) {
-    const rootPayload = isRecord26(payload) ? payload : {};
+    const rootPayload = isRecord27(payload) ? payload : {};
     const args = requestArgs(payload);
     const sessionId = typeof args.workspaceFileScopeId === "string" ? args.workspaceFileScopeId : typeof args.sessionId === "string" ? args.sessionId : typeof args.agentId === "string" ? args.agentId : void 0;
     if (sessionId === void 0) {
@@ -114494,7 +114691,7 @@ var HarnessRemoteBridge = class {
     if (!sessionWorkspace) {
       throw workspaceFileFailure("WORKSPACE_UNAVAILABLE", "The workspace is unavailable.", "authority-unavailable");
     }
-    const options = isRecord26(args.options) ? args.options : void 0;
+    const options = isRecord27(args.options) ? args.options : void 0;
     const rawBaseFile = endpoint === "workspaceFiles/readBytes" ? typeof options?.baseFile === "string" ? options.baseFile : typeof args.baseFile === "string" ? args.baseFile : void 0 : void 0;
     if (endpoint === "workspaceFiles/readBytes") {
       if (options !== void 0 && "baseFile" in options && options.baseFile !== void 0 && typeof options.baseFile !== "string") {
@@ -114508,18 +114705,22 @@ var HarnessRemoteBridge = class {
     if (rawBaseFile !== void 0) {
       const path = typeof args.path === "string" ? args.path : "";
       const relative7 = path.replaceAll("\\", "/");
-      if (relative7.length === 0 || relative7.startsWith("/") || /^[a-z][a-z\d+.-]*:/iu.test(relative7) || relative7.includes("\0")) {
+      if (relative7.length === 0 || /^[a-z][a-z\d+.-]*:/iu.test(relative7) || relative7.includes("\0")) {
         throw workspaceFileFailure("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.", "outside-root");
       }
-      const baseSegments = process.platform === "win32" ? rawBaseFile.replaceAll("\\", "/").split("/") : rawBaseFile.split("/");
-      if (baseSegments.some((segment) => segment === "..")) {
-        throw workspaceFileFailure("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.", "outside-root");
+      if (isAbsolute11(relative7)) {
+        safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, relative7, endpoint, sessionWorkspace.cwd);
+      } else {
+        const baseSegments = process.platform === "win32" ? rawBaseFile.replaceAll("\\", "/").split("/") : rawBaseFile.split("/");
+        if (baseSegments.some((segment) => segment === "..")) {
+          throw workspaceFileFailure("WORKSPACE_PATH_DENIED", "The requested workspace path is outside the workspace.", "outside-root");
+        }
+        const safeBaseRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, rawBaseFile, endpoint, sessionWorkspace.cwd);
+        const baseCandidate = resolve10(sessionWorkspace.root, safeBaseRel);
+        const baseDir = dirname10(baseCandidate);
+        const targetCandidate = resolve10(baseDir, path);
+        safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, targetCandidate, endpoint, sessionWorkspace.cwd);
       }
-      const safeBaseRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, rawBaseFile, endpoint, sessionWorkspace.cwd);
-      const baseCandidate = resolve10(sessionWorkspace.root, safeBaseRel);
-      const baseDir = dirname10(baseCandidate);
-      const targetCandidate = resolve10(baseDir, path);
-      safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, targetCandidate, endpoint, sessionWorkspace.cwd);
     } else {
       const path = typeof args.path === "string" ? args.path : ".";
       const pathSegments = process.platform === "win32" ? path.replaceAll("\\", "/").split("/") : path.split("/");
@@ -114528,8 +114729,8 @@ var HarnessRemoteBridge = class {
       }
       safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, path, endpoint, sessionWorkspace.cwd);
     }
-    let finalArgs = isRecord26(rootPayload.args) ? { ...rootPayload.args, path: safeRel } : { ...rootPayload, path: safeRel };
-    if (isRecord26(finalArgs.options)) {
+    let finalArgs = isRecord27(rootPayload.args) ? { ...rootPayload.args, path: safeRel } : { ...rootPayload, path: safeRel };
+    if (isRecord27(finalArgs.options)) {
       const { baseFile: _baseFile, ...restOptions } = finalArgs.options;
       finalArgs.options = restOptions;
     }
@@ -114541,11 +114742,11 @@ var HarnessRemoteBridge = class {
       const boundedLength = Math.min(rawLength, MAX_READ_BYTES2);
       const normalizedRange = { offset: offset2, length: boundedLength };
       if (requiresWorkspaceChangePath(this.harnessVersion)) {
-        finalArgs.options = { ...isRecord26(finalArgs.options) ? finalArgs.options : {}, range: normalizedRange };
+        finalArgs.options = { ...isRecord27(finalArgs.options) ? finalArgs.options : {}, range: normalizedRange };
         delete finalArgs.range;
       } else {
         finalArgs.range = normalizedRange;
-        if (isRecord26(finalArgs.options)) {
+        if (isRecord27(finalArgs.options)) {
           finalArgs.options = { ...finalArgs.options, range: normalizedRange };
         }
       }
@@ -114554,7 +114755,7 @@ var HarnessRemoteBridge = class {
         finalArgs.length = boundedLength;
       }
     }
-    return isRecord26(rootPayload.args) ? { ...rootPayload, args: finalArgs } : finalArgs;
+    return isRecord27(rootPayload.args) ? { ...rootPayload, args: finalArgs } : finalArgs;
   }
   async resolveWorkspaceRootForSession(sessionId, signal) {
     signal.throwIfAborted();
@@ -114658,7 +114859,16 @@ var HarnessRemoteBridge = class {
 };
 function journalSessionId(payload) {
   const address2 = requestArgs(payload).address;
-  return isRecord26(address2) && address2.kind === "session" && typeof address2.sessionId === "string" ? address2.sessionId : void 0;
+  return isRecord27(address2) && address2.kind === "session" && typeof address2.sessionId === "string" ? address2.sessionId : void 0;
+}
+function workspaceReadRequestPath(payload) {
+  const args = requestArgs(payload);
+  const options = isRecord27(args.options) ? args.options : void 0;
+  const baseFile = typeof options?.baseFile === "string" ? options.baseFile : typeof args.baseFile === "string" ? args.baseFile : void 0;
+  const path = typeof args.path === "string" ? args.path : void 0;
+  if (path === void 0 && baseFile === void 0) return void 0;
+  const text = [path, baseFile === void 0 ? void 0 : `base=${baseFile}`].filter((part) => part !== void 0).join(" ");
+  return text.length > 240 ? `${text.slice(0, 240)}\u2026` : text;
 }
 function isPathOutside2(rel) {
   if (rel === ".." || isAbsolute11(rel)) return true;
@@ -114668,17 +114878,17 @@ function isPathOutside2(rel) {
   return rel.startsWith("../");
 }
 function byteOrLineRange2(args) {
-  const options = isRecord26(args.options) ? args.options : void 0;
-  if (options !== void 0 && isRecord26(options.range)) return options.range;
-  return isRecord26(args.range) ? args.range : args;
+  const options = isRecord27(args.options) ? args.options : void 0;
+  if (options !== void 0 && isRecord27(options.range)) return options.range;
+  return isRecord27(args.range) ? args.range : args;
 }
 function normalizeWorkspaceChangesPayload(endpoint, payload, harnessVersion) {
   if (endpoint !== "workspaceFiles/changes" || !requiresWorkspaceChangePath(harnessVersion)) return payload;
-  if (!isRecord26(payload) || !isRecord26(payload.args) || Object.hasOwn(payload.args, "path")) return payload;
+  if (!isRecord27(payload) || !isRecord27(payload.args) || Object.hasOwn(payload.args, "path")) return payload;
   return { ...payload, args: { ...payload.args, path: "." } };
 }
 function normalizeWorkspaceRequestPayload(endpoint, payload, harnessVersion) {
-  if (!isRecord26(payload) || !isRecord26(payload.args)) return payload;
+  if (!isRecord27(payload) || !isRecord27(payload.args)) return payload;
   const args = payload.args;
   if (endpoint === "workspaceFiles/readBytes" && requiresWorkspaceChangePath(harnessVersion)) {
     if (!Object.hasOwn(args, "range") || Object.hasOwn(args, "options")) return payload;
@@ -114692,10 +114902,10 @@ function normalizeWorkspaceRequestPayload(endpoint, payload, harnessVersion) {
   return payload;
 }
 async function normalizeSessionAttachmentPayload(endpoint, payload, harnessVersion, gateway, signal) {
-  if (endpoint !== "session/attachment" || !isRecord26(payload) || !isRecord26(payload.args)) return payload;
-  const request2 = isRecord26(payload.args.request) ? payload.args.request : void 0;
+  if (endpoint !== "session/attachment" || !isRecord27(payload) || !isRecord27(payload.args)) return payload;
+  const request2 = isRecord27(payload.args.request) ? payload.args.request : void 0;
   if (request2 === void 0) return payload;
-  const attachment = isRecord26(request2.attachment) ? request2.attachment : void 0;
+  const attachment = isRecord27(request2.attachment) ? request2.attachment : void 0;
   const attachmentId = attachment !== void 0 && typeof attachment.attachmentId === "string" ? attachment.attachmentId : typeof request2.attachmentId === "string" ? request2.attachmentId : void 0;
   if (attachmentId === void 0) return payload;
   if (!isDshV022OrNewer(harnessVersion)) {
@@ -114727,7 +114937,7 @@ async function findSessionAttachmentReference(gateway, sessionId, attachmentId, 
       const result = await gateway.dispatch("session/page", { args: { request: pageRequest } }, signal);
       const reference = extractAttachmentReference(result, attachmentId);
       if (reference !== void 0) return reference;
-      if (result.ok === true && isRecord26(result.value)) {
+      if (result.ok === true && isRecord27(result.value)) {
         if (result.value.hasMore === true && typeof result.value.beforeSeq === "number") {
           beforeSeq = result.value.beforeSeq;
           continue;
@@ -114751,7 +114961,7 @@ function extractAttachmentReference(result, attachmentId) {
   const value = result.value;
   let records;
   if (Array.isArray(value)) records = value;
-  else if (isRecord26(value)) {
+  else if (isRecord27(value)) {
     if (Array.isArray(value.records)) records = value.records;
     else if (Array.isArray(value.events)) records = value.events;
   }
@@ -114772,7 +114982,7 @@ function findImageReference(value, attachmentId, depth) {
     return void 0;
   }
   const block = value;
-  const candidate = isRecord26(block.attachment) ? block.attachment : block;
+  const candidate = isRecord27(block.attachment) ? block.attachment : block;
   const candidateId = typeof candidate.attachmentId === "string" ? candidate.attachmentId : void 0;
   if (candidateId === attachmentId && isCompleteImageReference(candidate)) {
     return {
@@ -114888,6 +115098,7 @@ function needsDirectoryFallback(result) {
   const message = result.error.message.toLocaleLowerCase();
   return code.includes("capability") || code === "directory-picker/unavailable" || code === "directory-picker-unavailable" || message.includes("browse capability") || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
 }
+var FRAME_DIAGNOSTIC_MIN_BYTES = 256 * 1024;
 var SESSION_PROJECTION_WHITELIST = /* @__PURE__ */ new Set([
   "permissions",
   "remoteStatusKnown",
@@ -114922,7 +115133,7 @@ var DANGEROUS_KEYS = /* @__PURE__ */ new Set(["__proto__", "prototype", "constru
 var MAX_WHITELIST_PROJECTION_BYTES = 64 * 1024;
 var MAX_UNKNOWN_PROJECTION_BYTES = 4096;
 function filterSessionProjections(session2) {
-  if (!isRecord26(session2) || !isRecord26(session2.projections) || !isRecord26(session2.projections.values)) {
+  if (!isRecord27(session2) || !isRecord27(session2.projections) || !isRecord27(session2.projections.values)) {
     return session2;
   }
   const originalValues = session2.projections.values;
@@ -114963,15 +115174,15 @@ function trimSessionCatalogRows(endpoint, items) {
   return kept.length <= SESSION_LIST_ROW_BUDGET ? kept : kept.slice().sort((left, right) => updatedAtOf(right) - updatedAtOf(left)).slice(0, SESSION_LIST_ROW_BUDGET);
 }
 function isListableRemoteSession(session2) {
-  return isRecord26(session2) && session2.parentSessionId === void 0 && session2.origin !== "subagent";
+  return isRecord27(session2) && session2.parentSessionId === void 0 && session2.origin !== "subagent";
 }
 function updatedAtOf(session2) {
-  return isRecord26(session2) && typeof session2.updatedAt === "number" ? session2.updatedAt : 0;
+  return isRecord27(session2) && typeof session2.updatedAt === "number" ? session2.updatedAt : 0;
 }
 function withSessionRowTitle(session2) {
-  if (!isRecord26(session2) || typeof session2.title === "string" && session2.title !== "") return session2;
-  const values = isRecord26(session2.projections) ? session2.projections.values : void 0;
-  const title = isRecord26(values) ? values.title : void 0;
+  if (!isRecord27(session2) || typeof session2.title === "string" && session2.title !== "") return session2;
+  const values = isRecord27(session2.projections) ? session2.projections.values : void 0;
+  const title = isRecord27(values) ? values.title : void 0;
   return typeof title === "string" && title !== "" ? { ...session2, title } : session2;
 }
 function filterSessionListProjections(resultOrEndpoint, maybeResult) {
@@ -114980,7 +115191,7 @@ function filterSessionListProjections(resultOrEndpoint, maybeResult) {
   if (endpoint !== void 0 && endpoint !== "session/list" && endpoint !== "session/search") return result;
   if (!result || !result.ok) return result;
   const filterList = (items) => trimSessionCatalogRows(endpoint, items).map(filterSessionProjections).map(withSessionRowTitle);
-  if (isRecord26(result.value)) {
+  if (isRecord27(result.value)) {
     let changed = false;
     const updated = { ...result.value };
     if (Array.isArray(result.value.items)) {
@@ -115003,37 +115214,37 @@ function filterSessionListProjections(resultOrEndpoint, maybeResult) {
 }
 function filterRemotePluginInventory(endpoint, result) {
   if (!result.ok) return result;
-  const isRemote = (value) => typeof value === "string" && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
-  const filterEntries = (entries) => entries.filter((entry) => !isRecord26(entry) || !isRemote(entry.moduleName));
+  const isRemote = (value) => typeof value === "string" && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
+  const filterEntries = (entries) => entries.filter((entry) => !isRecord27(entry) || !isRemote(entry.moduleName));
   if (endpoint === "pluginManager/listPlugins" && Array.isArray(result.value)) {
     return { ...result, value: filterEntries(result.value) };
   }
   if (endpoint === "pluginManager/listBundles" && Array.isArray(result.value)) {
-    return { ...result, value: result.value.filter((bundle) => !isRecord26(bundle) || !isRemote(bundle.name)).map((bundle) => isRecord26(bundle) && Array.isArray(bundle.rows) ? { ...bundle, rows: filterEntries(bundle.rows) } : bundle) };
+    return { ...result, value: result.value.filter((bundle) => !isRecord27(bundle) || !isRemote(bundle.name)).map((bundle) => isRecord27(bundle) && Array.isArray(bundle.rows) ? { ...bundle, rows: filterEntries(bundle.rows) } : bundle) };
   }
-  if (endpoint === "pluginInventory/list" && isRecord26(result.value) && Array.isArray(result.value.entries)) {
+  if (endpoint === "pluginInventory/list" && isRecord27(result.value) && Array.isArray(result.value.entries)) {
     return { ...result, value: { ...result.value, entries: filterEntries(result.value.entries) } };
   }
   return result;
 }
 function requestArgs(payload) {
   const root2 = record11(payload);
-  const args = isRecord26(root2.args) ? root2.args : root2;
+  const args = isRecord27(root2.args) ? root2.args : root2;
   return record11(args.request ?? args._request ?? args);
 }
 function record11(value) {
-  return isRecord26(value) ? value : {};
+  return isRecord27(value) ? value : {};
 }
-function isRecord26(value) {
+function isRecord27(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function isCompactSnapshot(value) {
   return value !== null && typeof value === "object" && value.type === "snapshot";
 }
 function remoteOwnedBundleRow(row, plugin) {
-  const remoteModule = (value) => typeof value === "string" && /^(?:ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
+  const remoteModule = (value) => typeof value === "string" && /^(?:ds-harness-remote-fast|ds-harness-remote|dsh-remote)(?:\/|$)/.test(value);
   if (remoteModule(plugin ? row.moduleName : row.name)) return true;
-  return !plugin && (!Array.isArray(row.rows) || row.rows.some((value) => !isRecord26(value) || remoteModule(value.moduleName)) || Array.isArray(row.overrides) && row.overrides.some((value) => remoteModule(value)));
+  return !plugin && (!Array.isArray(row.rows) || row.rows.some((value) => !isRecord27(value) || remoteModule(value.moduleName)) || Array.isArray(row.overrides) && row.overrides.some((value) => remoteModule(value)));
 }
 
 // packages/plugin/src/remote-compaction-operations.ts
@@ -115052,11 +115263,11 @@ var MAX_CAUSE_DEPTH = 8;
 function requestIndexKey(ownerDeviceId, sessionId, requestId2) {
   return `${ownerDeviceId}\0${sessionId}\0${requestId2}`;
 }
-function isRecord27(value) {
+function isRecord28(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function commandIdOf(result) {
-  if (result?.ok !== true || !isRecord27(result.value)) return void 0;
+  if (result?.ok !== true || !isRecord28(result.value)) return void 0;
   return typeof result.value.commandId === "string" ? result.value.commandId : void 0;
 }
 var RemoteCompactionOperations = class {
@@ -115448,7 +115659,7 @@ function isAbortThrown(thrown, reason) {
       current = "cause" in current ? current.cause : void 0;
       continue;
     }
-    if (isRecord27(current)) {
+    if (isRecord28(current)) {
       if (typeof current.code === "string" && ABORT_CODE_PATTERN.test(current.code)) return true;
       if (typeof current.message === "string" && matchesSignalReason(current.message, reason)) return true;
       current = current.cause;
@@ -115463,13 +115674,13 @@ function matchesSignalReason(message, reason) {
   return reasonMessage !== void 0 && reasonMessage !== "" && message.includes(reasonMessage);
 }
 function isCommandSuccess(result) {
-  if (result.ok !== true || !isRecord27(result.value)) return false;
-  const command = isRecord27(result.value.result) ? result.value.result : void 0;
+  if (result.ok !== true || !isRecord28(result.value)) return false;
+  const command = isRecord28(result.value.result) ? result.value.result : void 0;
   return command?.kind === "success";
 }
 function commandText2(result) {
-  if (result.ok !== true || !isRecord27(result.value)) return void 0;
-  const command = isRecord27(result.value.result) ? result.value.result : void 0;
+  if (result.ok !== true || !isRecord28(result.value)) return void 0;
+  const command = isRecord28(result.value.result) ? result.value.result : void 0;
   return typeof command?.text === "string" && command.text.trim() !== "" ? command.text : void 0;
 }
 function sanitizeMessage(message) {
@@ -115488,13 +115699,13 @@ function waitWithTimeout(promise2, ms) {
   });
 }
 function readCompactionConfirmation(result, acceptedAt, commandId) {
-  if (result.ok !== true || !isRecord27(result.value)) return { kind: "unknown" };
+  if (result.ok !== true || !isRecord28(result.value)) return { kind: "unknown" };
   const records = Array.isArray(result.value.records) ? result.value.records : [];
   const legacy = Array.isArray(result.value.events) ? result.value.events : [];
   const events = [];
   for (const record12 of [...records, ...legacy]) {
-    const event2 = isRecord27(record12) && isRecord27(record12.event) ? record12.event : record12;
-    if (isRecord27(event2) && typeof event2.type === "string") events.push(event2);
+    const event2 = isRecord28(record12) && isRecord28(record12.event) ? record12.event : record12;
+    if (isRecord28(event2) && typeof event2.type === "string") events.push(event2);
   }
   if (events.length === 0) return { kind: "unknown" };
   const matchedCommandRun = commandId === void 0 ? latestCompactCommandId(events, acceptedAt) : hasCompactCommandRun(events, commandId) ? commandId : void 0;
@@ -115502,34 +115713,34 @@ function readCompactionConfirmation(result, acceptedAt, commandId) {
   if (resolvedCommandId === void 0) return { kind: "not-yet" };
   const end = [...events].reverse().find((event2) => {
     if (event2.type !== "compaction/end") return false;
-    const data3 = isRecord27(event2.data) ? event2.data : void 0;
+    const data3 = isRecord28(event2.data) ? event2.data : void 0;
     return data3?.sourceCommandId === resolvedCommandId;
   });
   if (end === void 0) {
     const hasCompactionStart = events.some((event2) => {
       if (event2.type !== "compaction/start") return false;
-      const data3 = isRecord27(event2.data) ? event2.data : void 0;
+      const data3 = isRecord28(event2.data) ? event2.data : void 0;
       return data3?.sourceCommandId === resolvedCommandId;
     });
     if (hasCompactionStart) return { kind: "not-yet", started: true };
     if (matchedCommandRun !== void 0) return { kind: "not-yet", commandRecorded: true };
     return { kind: "not-yet" };
   }
-  const data2 = isRecord27(end.data) ? end.data : {};
+  const data2 = isRecord28(end.data) ? end.data : {};
   const error62 = data2.error === void 0 ? void 0 : errorText(data2.error);
   return error62 === void 0 ? { kind: "finished" } : { kind: "finished", error: error62 };
 }
 function hasCompactCommandRun(events, commandId) {
   return events.some((event2) => {
     if (event2.type !== "command/run") return false;
-    const data2 = isRecord27(event2.data) ? event2.data : void 0;
+    const data2 = isRecord28(event2.data) ? event2.data : void 0;
     return data2?.name === "compact" && data2.commandId === commandId;
   });
 }
 function latestCompactCommandId(events, acceptedAt) {
   for (const event2 of [...events].reverse()) {
     if (event2.type !== "command/run") continue;
-    const data2 = isRecord27(event2.data) ? event2.data : void 0;
+    const data2 = isRecord28(event2.data) ? event2.data : void 0;
     if (data2?.name !== "compact" || typeof data2.commandId !== "string") continue;
     const time3 = typeof event2.time === "number" ? event2.time : 0;
     if (time3 !== 0 && time3 < acceptedAt - 5e3) continue;
@@ -115539,7 +115750,7 @@ function latestCompactCommandId(events, acceptedAt) {
 }
 function errorText(error62) {
   if (typeof error62 === "string") return sanitizeMessage(error62);
-  if (isRecord27(error62)) {
+  if (isRecord28(error62)) {
     const message = error62.message ?? error62.error ?? error62.reason;
     if (typeof message === "string" && message.trim() !== "") return sanitizeMessage(message);
     try {
@@ -115586,6 +115797,8 @@ var HostPluginRuntime = class {
     this.schedule = schedule;
     this.codexStartupGraceMs = codexStartupGraceMs;
     this.terminalEnabled = config2.terminal.enabled;
+    setLiteModeEnabled(config2.liteMode === true);
+    setForceRelayEnabled(config2.forceRelay === true);
     this.loopbackPorts = [...config2.loopback.ports];
     this.attention = new HostAttentionTracker({
       localGateway,
@@ -115776,8 +115989,8 @@ var HostPluginRuntime = class {
   localAcpPeer;
   localAcpPublish = async () => void 0;
   warnedMissingHostApi = false;
-  setTerminalEnabled(enabled) {
-    this.terminalEnabled = enabled;
+  setTerminalEnabled(enabled3) {
+    this.terminalEnabled = enabled3;
   }
   setLoopbackPorts(ports) {
     this.loopbackPorts = [...ports];
@@ -116520,10 +116733,28 @@ function remoteSessionTools(resolve11) {
     }
   }));
 }
-function installRemoteDiscoveryTools(ctx, resolve11) {
+function localSwitchTools(switches) {
+  const input4 = external_exports.object({ enabled: external_exports.boolean() }).strict();
+  return [{
+    name: "remote_fast_mode",
+    description: "Turn this Host's fast mode (\u6781\u901F\u6A21\u5F0F) on or off. When on, the first history page keeps 10 records, tool details are compacted and oversized plugin projections are dropped, so a large session no longer breaks the connection and the relay carries less. On by default; turning it off restores the full history for remote clients. Applies immediately and persists for this profile. Use it when the user asks to speed up remote access or to get full history back.",
+    parameters: object5({ enabled: { type: "boolean" } }, ["enabled"]),
+    output: {
+      schema: object5({ enabled: { type: "boolean" } }, ["enabled"]),
+      render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }]
+    },
+    execute: async (args) => ({ enabled: await switches.setFastMode(input4.parse(args).enabled) })
+  }];
+}
+function installRemoteDiscoveryTools(ctx, resolve11, switches) {
   ctx.inject(["tools"], (toolContext) => {
     const tools = toolContext.get("tools");
-    for (const definition of [...remoteDiscoveryTools(resolve11), ...remoteSessionTools(resolve11)]) {
+    const definitions = [
+      ...remoteDiscoveryTools(resolve11),
+      ...remoteSessionTools(resolve11),
+      ...switches === void 0 ? [] : localSwitchTools(switches)
+    ];
+    for (const definition of definitions) {
       toolContext.effect(() => tools.register(definition));
     }
   });
@@ -116574,8 +116805,8 @@ function runHmrSafe(run2, hmr) {
 
 // packages/plugin/src/update-check.ts
 var DIST_TAG_URLS = [
-  "https://registry.npmjs.org/-/package/ds-harness-remote/dist-tags",
-  "https://registry.npmmirror.com/-/package/ds-harness-remote/dist-tags"
+  "https://registry.npmjs.org/-/package/ds-harness-remote-fast/dist-tags",
+  "https://registry.npmmirror.com/-/package/ds-harness-remote-fast/dist-tags"
 ];
 var FETCH_TIMEOUT_MS = 1e4;
 var RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1e3;
@@ -116805,21 +117036,21 @@ var LocalPluginUpgrade = class {
 };
 function bundleUpdatable(listed, packageName) {
   if (!Array.isArray(listed)) return false;
-  return listed.some((row) => isRecord28(row) && row.name === packageName && (row.update === "registry" || row.update === void 0 && row.updatable === true));
+  return listed.some((row) => isRecord29(row) && row.name === packageName && (row.update === "registry" || row.update === void 0 && row.updatable === true));
 }
 function classifyUpdateResult(result) {
-  if (!isRecord28(result) || !isRecord28(result.result)) return { status: "failed", message: "update-failed" };
+  if (!isRecord29(result) || !isRecord29(result.result)) return { status: "failed", message: "update-failed" };
   const application = result.result.application;
   if (application === "applied" || application === "restart-required") return { status: "started" };
   return { status: "failed", message: failureMessage(result.result.error) };
 }
 function failureMessage(error62) {
-  if (!isRecord28(error62)) return "update-failed";
+  if (!isRecord29(error62)) return "update-failed";
   const code = typeof error62.code === "string" && error62.code.length > 0 && error62.code.length <= 80 ? error62.code : "update-failed";
   const diagnostic = typeof error62.diagnostic === "string" ? error62.diagnostic.replace(/\s+/g, " ").trim().slice(0, 180) : "";
   return diagnostic === "" ? code : `${code}: ${diagnostic}`;
 }
-function isRecord28(value) {
+function isRecord29(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -116975,7 +117206,7 @@ ${helpText()}`);
 }
 async function register(args, runtime) {
   if (args.length !== 1 || args[0] === void 0 || args[0].trim() === "") {
-    throw new CliUsageError("Usage: ds-harness-remote register <server-token>");
+    throw new CliUsageError("Usage: ds-harness-remote-fast register <server-token>");
   }
   const context = await hostContext(runtime);
   await context.api.authorizeHostWithCode(context.identity, args[0]);
@@ -116983,11 +117214,11 @@ async function register(args, runtime) {
   return 0;
 }
 async function login(args, runtime) {
-  if (args.length > 1) throw new CliUsageError("Usage: ds-harness-remote login [provider|list]");
+  if (args.length > 1) throw new CliUsageError("Usage: ds-harness-remote-fast login [provider|list]");
   const context = await hostContext(runtime);
   const providers = (await context.api.oauthProviders()).filter((item) => item.qrStartUrl != null);
   if (args[0] === "list") {
-    write2(runtime.stdout, providers.length === 0 ? "No QR sign-in providers are available.\n" : providers.map((item) => `${item.displayName}: ds-harness-remote login ${item.id}
+    write2(runtime.stdout, providers.length === 0 ? "No QR sign-in providers are available.\n" : providers.map((item) => `${item.displayName}: ds-harness-remote-fast login ${item.id}
 `).join(""));
     return 0;
   }
@@ -117284,7 +117515,7 @@ var AcpGateway = class {
 };
 
 // packages/plugin/src/index.ts
-var name = "ds-harness-remote";
+var name = "ds-harness-remote-fast";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["@dsh-remote/plugin"]);
 var pluginSettingsNamespace = "ds-harness-remote";
 var DEFAULT_ENTRY_ID = "ds-harness-remote";
@@ -117689,7 +117920,17 @@ async function activate(ctx, readConfig, entryId, requireRemoteEvents = false) {
       await logStore.flush();
     };
   }, "ds-harness-remote lifecycle");
-  if (config2.remoteTools?.enabled) installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? void 0 : clientRuntime);
+  if (config2.remoteTools?.enabled) {
+    installRemoteDiscoveryTools(ctx, () => closed || !clientActive ? void 0 : clientRuntime, settingsBinding === void 0 ? void 0 : {
+      fastMode: () => resolveConfig(readConfig()).liteMode === true,
+      setFastMode: async (enabled3) => {
+        const current = editableConfig(resolveConfig(readConfig()));
+        await settingsBinding.replace({ ...current, liteMode: enabled3 });
+        setLiteModeEnabled(enabled3);
+        return enabled3;
+      }
+    });
+  }
 }
 function mountControlEffect(ctx, control, connection, logStore, logger2, label) {
   ctx.effect(() => {

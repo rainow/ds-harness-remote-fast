@@ -1,0 +1,141 @@
+From 906636e907ce36dd13feafc89824d22cb406925e Mon Sep 17 00:00:00 2001
+From: rainow <rainow@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 14:23:57 +0800
+Subject: [PATCH 3/4] fix(remote): resolve in-root absolute workspace reads for
+ image envelopes
+
+Remote clients that anchor a read on the session file send the absolute path
+from an image envelope (<path>/abs/workspace.png</path>). Treat such a path as a
+plain root-relative target when it is inside the workspace instead of rejecting
+it as outside-root; URL-scheme and out-of-root paths keep failing. Also record
+the requested path on failed workspace calls so operator logs are actionable.
+---
+ packages/plugin/src/harness-remote-bridge.ts  | 39 ++++++++++++++-----
+ .../tests/harness-remote-bridge.test.ts       | 32 ++++++++++++++-
+ 2 files changed, 60 insertions(+), 11 deletions(-)
+
+diff --git a/packages/plugin/src/harness-remote-bridge.ts b/packages/plugin/src/harness-remote-bridge.ts
+index 019b09a0..0896d515 100644
+--- a/packages/plugin/src/harness-remote-bridge.ts
++++ b/packages/plugin/src/harness-remote-bridge.ts
+@@ -489,11 +489,13 @@ export class HarnessRemoteBridge {
+         return result
+       }
+       const reason = workspaceFileFailureReason(error)
++      const requested = workspaceReadRequestPath(params.payload)
+       this.logger?.warn('harness remote call failed', {
+         endpoint: params.endpoint,
+         durationMs: Math.round(performance.now() - startedAt),
+         code: this.gateway.failure(error).code,
+         ...(reason === undefined ? {} : { reason }),
++        ...(requested === undefined ? {} : { requested }),
+       })
+       throw error
+     } finally {
+@@ -1104,18 +1106,26 @@ export class HarnessRemoteBridge {
+     if (rawBaseFile !== undefined) {
+       const path = typeof args.path === 'string' ? args.path : ''
+       const relative = path.replaceAll('\\', '/')
+-      if (relative.length === 0 || relative.startsWith('/') || /^[a-z][a-z\d+.-]*:/iu.test(relative) || relative.includes('\x00')) {
++      if (relative.length === 0 || /^[a-z][a-z\d+.-]*:/iu.test(relative) || relative.includes('\x00')) {
+         throw workspaceFileFailure('WORKSPACE_PATH_DENIED', 'The requested workspace path is outside the workspace.', 'outside-root')
+       }
+-      const baseSegments = process.platform === 'win32' ? rawBaseFile.replaceAll('\\', '/').split('/') : rawBaseFile.split('/')
+-      if (baseSegments.some(segment => segment === '..')) {
+-        throw workspaceFileFailure('WORKSPACE_PATH_DENIED', 'The requested workspace path is outside the workspace.', 'outside-root')
++      // Remote clients that anchor a read on the session file still send absolute
++      // paths for image envelopes (`<path>/abs/workspace.png</path>`). Validate
++      // those against the workspace root instead of rejecting them outright: an
++      // in-root absolute path keeps working, an out-of-root one still fails.
++      if (isAbsolute(relative)) {
++        safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, relative, endpoint, sessionWorkspace.cwd)
++      } else {
++        const baseSegments = process.platform === 'win32' ? rawBaseFile.replaceAll('\\', '/').split('/') : rawBaseFile.split('/')
++        if (baseSegments.some(segment => segment === '..')) {
++          throw workspaceFileFailure('WORKSPACE_PATH_DENIED', 'The requested workspace path is outside the workspace.', 'outside-root')
++        }
++        const safeBaseRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, rawBaseFile, endpoint, sessionWorkspace.cwd)
++        const baseCandidate = resolve(sessionWorkspace.root, safeBaseRel)
++        const baseDir = dirname(baseCandidate)
++        const targetCandidate = resolve(baseDir, path)
++        safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, targetCandidate, endpoint, sessionWorkspace.cwd)
+       }
+-      const safeBaseRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, rawBaseFile, endpoint, sessionWorkspace.cwd)
+-      const baseCandidate = resolve(sessionWorkspace.root, safeBaseRel)
+-      const baseDir = dirname(baseCandidate)
+-      const targetCandidate = resolve(baseDir, path)
+-      safeRel = await this.verifyWorkspacePathContainment(sessionWorkspace.root, targetCandidate, endpoint, sessionWorkspace.cwd)
+     } else {
+       const path = typeof args.path === 'string' ? args.path : '.'
+       const pathSegments = process.platform === 'win32' ? path.replaceAll('\\', '/').split('/') : path.split('/')
+@@ -1289,6 +1299,17 @@ function journalSessionId(payload: unknown): string | undefined {
+     ? address.sessionId : undefined
+ }
+ 
++/** Describe the path a rejected workspace read asked for, for operator logs. */
++function workspaceReadRequestPath(payload: unknown): string | undefined {
++  const args = requestArgs(payload)
++  const options = isRecord(args.options) ? args.options : undefined
++  const baseFile = typeof options?.baseFile === 'string' ? options.baseFile : (typeof args.baseFile === 'string' ? args.baseFile : undefined)
++  const path = typeof args.path === 'string' ? args.path : undefined
++  if (path === undefined && baseFile === undefined) return undefined
++  const text = [path, baseFile === undefined ? undefined : `base=${baseFile}`].filter(part => part !== undefined).join(' ')
++  return text.length > 240 ? `${text.slice(0, 240)}…` : text
++}
++
+ function isPathOutside(rel: string): boolean {
+   if (rel === '..' || isAbsolute(rel)) return true
+   if (process.platform === 'win32') {
+diff --git a/packages/plugin/tests/harness-remote-bridge.test.ts b/packages/plugin/tests/harness-remote-bridge.test.ts
+index a69c5f38..e31ce34e 100644
+--- a/packages/plugin/tests/harness-remote-bridge.test.ts
++++ b/packages/plugin/tests/harness-remote-bridge.test.ts
+@@ -1935,7 +1935,30 @@ describe('HarnessRemoteBridge', () => {
+           },
+         },
+         {
+-          name: 'rejects readBytes when path is not relative when baseFile is provided',
++          name: 'resolves readBytes when the path is absolute inside the workspace even with baseFile',
++          run: async () => {
++            dispatch.mockClear()
++            await expect(
++              bridge.call({
++                endpoint: 'workspaceFiles/readBytes',
++                payload: {
++                  args: {
++                    workspaceFileScopeId: 'session-1',
++                    path: insideFile,
++                    options: { baseFile: 'sub/nested.txt' },
++                  },
++                },
++              }),
++            ).resolves.toMatchObject({ ok: true })
++            expect(dispatch).toHaveBeenCalledWith(
++              'workspaceFiles/readBytes',
++              expect.objectContaining({ args: expect.objectContaining({ path: 'inside.txt' }) }),
++              expect.any(AbortSignal),
++            )
++          },
++        },
++        {
++          name: 'rejects readBytes when an absolute path stays outside the workspace with baseFile',
+           run: async () => {
+             dispatch.mockClear()
+             await expect(
+@@ -1951,7 +1974,12 @@ describe('HarnessRemoteBridge', () => {
+               }),
+             ).rejects.toMatchObject({ code: 'WORKSPACE_PATH_DENIED' })
+             expect(dispatch).not.toHaveBeenCalled()
+-
++          },
++        },
++        {
++          name: 'rejects readBytes when the path carries a URL scheme with baseFile',
++          run: async () => {
++            dispatch.mockClear()
+             await expect(
+               bridge.call({
+                 endpoint: 'workspaceFiles/readBytes',
+-- 
+2.56.0
+
